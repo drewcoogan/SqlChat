@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Retarget to net10.0 when the .NET 10 SDK is installed locally / in CI. -->
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
+    <ProjectReference Include="..\SqlChat.Data\SqlChat.Data.csproj" />
+    <ProjectReference Include="..\SqlChat.Service\SqlChat.Service.csproj" />
+  </ItemGroup>
+</Project>

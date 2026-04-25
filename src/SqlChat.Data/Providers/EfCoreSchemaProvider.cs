@@ -52,7 +52,8 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
             }
 
             var (schema, tableName) = group.Key;
-            tables.Add(new TableDescriptor(tableName, schema, [.. columns.Values]));
+            var tableDescription = group.First().Entity.GetComment();
+            tables.Add(new TableDescriptor(tableName, schema, [.. columns.Values], tableDescription));
         }
 
         return new SchemaCatalog(tables);
@@ -81,7 +82,7 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
             }
         }
 
-        return ColumnDescriptor.Create(name, storeType, description: null, isNullable, isPk, fkRef, semanticTags: null);
+        return ColumnDescriptor.Create(name, storeType, description: property.GetComment(), isNullable, isPk, fkRef, semanticTags: null);
     }
 
     private static string? TryGetRelationalStoreType(IProperty property)

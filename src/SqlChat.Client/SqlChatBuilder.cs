@@ -4,6 +4,7 @@ using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Providers;
 using SqlChat.Service.Engine;
+using SqlChat.Service.Generation;
 using SqlChat.Service.Security;
 
 namespace SqlChat.Client;
@@ -16,6 +17,7 @@ public sealed class SqlChatBuilder
     private ISchemaProvider? _schemaProvider;
     private ISqlSecurityValidator? _sqlSecurityValidator;
     private SqlSecurityOptions? _sqlSecurityOptions;
+    private ISqlGenerator? _generator;
 
     public SqlChatBuilder UseSchema(SchemaCatalog catalog)
     {
@@ -31,6 +33,16 @@ public sealed class SqlChatBuilder
     {
         ArgumentNullException.ThrowIfNull(model);
         _schemaProvider = new EfCoreSchemaProvider(model);
+        return this;
+    }
+
+    /// <summary>
+    /// Plug in an LLM-backed or custom <see cref="ISqlGenerator"/> (e.g. AnthropicSqlGenerator).
+    /// Defaults to <see cref="SimpleTextToSqlGenerator"/> when not set.
+    /// </summary>
+    public SqlChatBuilder UseGenerator(ISqlGenerator generator)
+    {
+        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
         return this;
     }
 
@@ -74,7 +86,7 @@ public sealed class SqlChatBuilder
         }
 
         var sqlSecurity = _sqlSecurityValidator ?? new SqlSecurityValidator(_sqlSecurityOptions);
-        var engine = new TextToSqlEngine(_schemaProvider, sqlSecurity);
+        var engine = new TextToSqlEngine(_schemaProvider, _generator, sqlSecurity);
         return new SqlChatClient(engine);
     }
 }

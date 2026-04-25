@@ -7,19 +7,22 @@ using SqlChat.Service.Security;
 namespace SqlChat.Service.Engine;
 
 /// <summary>
-/// Coordinates schema retrieval, security validation of generated SQL, and natural language to SQL generation.
-/// Flow: produce SQL → <see cref="ISqlSecurityValidator.ValidateGeneratedSql"/> → return.
+/// Coordinates schema retrieval, SQL generation, and security validation.
+/// Flow: fetch schema → generate SQL → validate → return.
 /// </summary>
 public sealed class TextToSqlEngine
 {
     private readonly ISchemaProvider _schemaProvider;
     private readonly ISqlSecurityValidator _sqlSecurity;
+    private readonly ISqlGenerator _generator;
 
     public TextToSqlEngine(
         ISchemaProvider schemaProvider,
+        ISqlGenerator? generator = null,
         ISqlSecurityValidator? sqlSecurityValidator = null)
     {
         _schemaProvider = schemaProvider ?? throw new ArgumentNullException(nameof(schemaProvider));
+        _generator = generator ?? new SimpleTextToSqlGenerator();
         _sqlSecurity = sqlSecurityValidator ?? new SqlSecurityValidator();
     }
 
@@ -43,9 +46,8 @@ public sealed class TextToSqlEngine
         ArgumentException.ThrowIfNullOrWhiteSpace(naturalLanguage);
 
         var schema = await GetSchemaAsync(cancellationToken).ConfigureAwait(false);
-        var sql = SimpleTextToSqlGenerator.Generate(naturalLanguage, schema);
+        var sql = await _generator.GenerateAsync(naturalLanguage, schema, cancellationToken).ConfigureAwait(false);
         ValidateGeneratedSqlOrThrow(sql);
         return sql;
     }
 }
-

@@ -1,3 +1,5 @@
+using SqlChat.Domain.Models;
+
 namespace SqlChat.Service.Security;
 
 /// <summary>

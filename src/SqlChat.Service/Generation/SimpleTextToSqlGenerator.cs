@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Service.Generation;
@@ -8,9 +9,12 @@ namespace SqlChat.Service.Generation;
 /// Minimal, rules-based generator used as a bootstrap before introducing an LLM.
 /// Scope: single-table SELECT, optional COUNT(*), simple equality predicates.
 /// </summary>
-internal static class SimpleTextToSqlGenerator
+public sealed class SimpleTextToSqlGenerator : ISqlGenerator
 {
     private static readonly Regex CountPattern = new(@"\b(count|how many)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Generate(naturalLanguage, schema));
 
     internal static string Generate(string naturalLanguage, SchemaCatalog schema)
     {
@@ -55,7 +59,6 @@ internal static class SimpleTextToSqlGenerator
             if (nl.Contains(tableName, StringComparison.OrdinalIgnoreCase))
                 score += 10;
 
-            // very small pluralization heuristic: "users" → "user"
             if (!nl.Contains(tableName, StringComparison.OrdinalIgnoreCase) && tableName.EndsWith("s", StringComparison.OrdinalIgnoreCase))
             {
                 var singular = tableName[..^1];
@@ -75,13 +78,11 @@ internal static class SimpleTextToSqlGenerator
 
     private static string? BuildWhereClause(string naturalLanguage, TableDescriptor table)
     {
-        var nl = naturalLanguage;
-
         foreach (var c in table.Columns)
         {
             var name = c.Name;
             var pattern = @$"(?i)\b{Regex.Escape(name)}\b\s*(=|is)\s*(?<value>[^\r\n;]+)";
-            var m = Regex.Match(nl, pattern, RegexOptions.CultureInvariant);
+            var m = Regex.Match(naturalLanguage, pattern, RegexOptions.CultureInvariant);
             if (!m.Success)
                 continue;
 
@@ -120,4 +121,3 @@ internal static class SimpleTextToSqlGenerator
     private static string Normalize(string s) =>
         s.Trim().Replace("_", " ").Replace("-", " ");
 }
-

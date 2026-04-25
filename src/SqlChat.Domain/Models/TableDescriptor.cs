@@ -6,5 +6,6 @@ namespace SqlChat.Domain.Models;
 public sealed record TableDescriptor(
     string Name,
     string? Schema,
-    IReadOnlyList<ColumnDescriptor> Columns);
+    IReadOnlyList<ColumnDescriptor> Columns,
+    string? Description = null);
 

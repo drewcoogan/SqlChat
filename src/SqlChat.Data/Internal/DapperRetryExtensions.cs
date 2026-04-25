@@ -1,0 +1,44 @@
+using System.Data;
+using Dapper;
+using Polly;
+
+namespace SqlChat.Data.Internal;
+
+public static class DapperRetryExtensions
+{
+    private static readonly ResiliencePipeline DefaultPipeline = new ResiliencePipelineBuilder()
+        .AddRetry(new Polly.Retry.RetryStrategyOptions
+        {
+            MaxRetryAttempts = 3,
+            Delay = TimeSpan.FromMilliseconds(200),
+            BackoffType = DelayBackoffType.Exponential,
+            UseJitter = true,
+        })
+        .Build();
+
+    public static async Task<IEnumerable<T>> QueryWithRetryAsync<T>(
+        this IDbConnection connection,
+        string sql,
+        object? param = null,
+        ResiliencePipeline? pipeline = null,
+        CancellationToken cancellationToken = default)
+    {
+        var p = pipeline ?? DefaultPipeline;
+        return await p.ExecuteAsync(
+            async ct => await connection.QueryAsync<T>(new CommandDefinition(sql, param, cancellationToken: ct)).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<T?> QuerySingleOrDefaultWithRetryAsync<T>(
+        this IDbConnection connection,
+        string sql,
+        object? param = null,
+        ResiliencePipeline? pipeline = null,
+        CancellationToken cancellationToken = default)
+    {
+        var p = pipeline ?? DefaultPipeline;
+        return await p.ExecuteAsync(
+            async ct => await connection.QuerySingleOrDefaultAsync<T>(new CommandDefinition(sql, param, cancellationToken: ct)).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+    }
+}

@@ -2,18 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
-using SqlChat.Domain.Models;
 using SqlChat.Service.Engine;
-using SqlChat.Service.Generation;
 using SqlChat.Service.Security;
 
 namespace SqlChat.Client;
 
-/// <summary>
-/// Fluent builder returned by <c>services.AddSqlChat()</c>.
-/// Register schema source and optionally override security/generator.
-/// AI generators are registered via extension methods in SqlChat.Ai.
-/// </summary>
 public sealed class SqlChatDiBuilder
 {
     public IServiceCollection Services { get; }
@@ -21,7 +14,6 @@ public sealed class SqlChatDiBuilder
     internal SqlChatDiBuilder(IServiceCollection services)
     {
         Services = services;
-        services.AddSingleton<ISqlGenerator, SimpleTextToSqlGenerator>();
         services.AddSingleton<ISqlSecurityValidator, SqlSecurityValidator>();
         services.AddScoped<TextToSqlEngine>();
         services.AddScoped<SqlChatClient>();
@@ -34,15 +26,9 @@ public sealed class SqlChatDiBuilder
         return this;
     }
 
-    public SqlChatDiBuilder UseConnectionString(string connectionString, SqlDialect dialect)
+    public SqlChatDiBuilder UsePostgresConnectionString(string connectionString)
     {
-        ISchemaProvider provider = dialect switch
-        {
-            SqlDialect.SqlServer => new SqlServerSchemaProvider(connectionString),
-            SqlDialect.PostgreSql => new PostgresSchemaProvider(connectionString),
-            _ => throw new ArgumentOutOfRangeException(nameof(dialect)),
-        };
-        Services.AddSingleton(provider);
+        Services.AddSingleton<ISchemaProvider>(new PostgresSchemaProvider(connectionString));
         return this;
     }
 

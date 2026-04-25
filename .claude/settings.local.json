@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git branch *)",
+      "Bash(git worktree *)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')",
+      "Bash(xargs ls *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet script *)",
+      "Read(//private/tmp/**)",
+      "Bash(cat)",
+      "Bash(dotnet run *)"
+    ]
+  }
+}

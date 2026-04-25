@@ -52,7 +52,7 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
             }
 
             var (schema, tableName) = group.Key;
-            var tableDescription = group.First().Entity.GetComment();
+            var tableDescription = TryGetComment(group.First().Entity);
             tables.Add(new TableDescriptor(tableName, schema, [.. columns.Values], tableDescription));
         }
 
@@ -82,7 +82,7 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
             }
         }
 
-        return ColumnDescriptor.Create(name, storeType, description: property.GetComment(), isNullable, isPk, fkRef, semanticTags: null);
+        return ColumnDescriptor.Create(name, storeType, description: TryGetComment(property), isNullable, isPk, fkRef, semanticTags: null);
     }
 
     private static string? TryGetRelationalStoreType(IProperty property)
@@ -99,5 +99,17 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
 
     private static string? TryGetStoreTypeFromTypeMapping(CoreTypeMapping typeMapping) =>
         typeMapping is RelationalTypeMapping relational ? relational.StoreType : null;
+
+    private static string? TryGetComment(IReadOnlyEntityType entity)
+    {
+        try { return entity.GetComment(); }
+        catch (InvalidOperationException) { return null; }
+    }
+
+    private static string? TryGetComment(IReadOnlyProperty property)
+    {
+        try { return property.GetComment(); }
+        catch (InvalidOperationException) { return null; }
+    }
 }
 

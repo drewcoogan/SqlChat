@@ -4,7 +4,6 @@ using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Providers;
 using SqlChat.Service.Engine;
-using SqlChat.Service.Generation;
 using SqlChat.Service.Security;
 
 namespace SqlChat.Client;
@@ -80,10 +79,12 @@ public sealed class SqlChatBuilder
     public SqlChatClient Build()
     {
         if (_schemaProvider is null)
-        {
             throw new InvalidOperationException(
                 "Configure a schema source with UseSchema, UseEntityFramework, or UseSchemaProvider before calling Build().");
-        }
+
+        if (_generator is null)
+            throw new InvalidOperationException(
+                "Configure a SQL generator with UseGenerator before calling Build(). Example: .UseGenerator(new AnthropicSqlGenerator(options))");
 
         var sqlSecurity = _sqlSecurityValidator ?? new SqlSecurityValidator(_sqlSecurityOptions);
         var engine = new TextToSqlEngine(_schemaProvider, _generator, sqlSecurity);

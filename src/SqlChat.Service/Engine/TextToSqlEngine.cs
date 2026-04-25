@@ -1,15 +1,10 @@
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Exceptions;
 using SqlChat.Domain.Models;
-using SqlChat.Service.Generation;
 using SqlChat.Service.Security;
 
 namespace SqlChat.Service.Engine;
 
-/// <summary>
-/// Coordinates schema retrieval, SQL generation, and security validation.
-/// Flow: fetch schema → generate SQL → validate → return.
-/// </summary>
 public sealed class TextToSqlEngine
 {
     private readonly ISchemaProvider _schemaProvider;
@@ -18,11 +13,11 @@ public sealed class TextToSqlEngine
 
     public TextToSqlEngine(
         ISchemaProvider schemaProvider,
-        ISqlGenerator? generator = null,
+        ISqlGenerator generator,
         ISqlSecurityValidator? sqlSecurityValidator = null)
     {
         _schemaProvider = schemaProvider ?? throw new ArgumentNullException(nameof(schemaProvider));
-        _generator = generator ?? new SimpleTextToSqlGenerator();
+        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
         _sqlSecurity = sqlSecurityValidator ?? new SqlSecurityValidator();
     }
 

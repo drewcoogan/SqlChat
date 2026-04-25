@@ -15,12 +15,4 @@ public static class SqlChatAiDiExtensions
         builder.Services.AddSingleton<ISqlGenerator>(new AnthropicSqlGenerator(options));
         return builder;
     }
-
-    public static SqlChatDiBuilder UseAzureOpenAi(this SqlChatDiBuilder builder, Action<SqlChatAiOptions>? configure = null)
-    {
-        var options = new SqlChatAiOptions();
-        configure?.Invoke(options);
-        builder.Services.AddSingleton<ISqlGenerator>(new AzureOpenAiSqlGenerator(options));
-        return builder;
-    }
 }

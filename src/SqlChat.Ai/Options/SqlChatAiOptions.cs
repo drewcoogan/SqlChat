@@ -4,7 +4,7 @@ namespace SqlChat.Ai.Options;
 
 public sealed class SqlChatAiOptions
 {
-    public SqlDialect Dialect { get; set; } = SqlDialect.SqlServer;
+    public SqlDialect Dialect { get; set; } = SqlDialect.PostgreSql;
     public int MaxOutputTokens { get; set; } = 2048;
 
     // Anthropic

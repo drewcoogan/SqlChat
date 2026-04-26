@@ -1,22 +1,44 @@
-using Microsoft.EntityFrameworkCore.Metadata;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Builders;
 using SqlChat.Domain.Models;
+using SqlChat.Domain.Options;
 using SqlChat.Domain.Providers;
 using SqlChat.Service.Engine;
 using SqlChat.Service.Security;
 
 namespace SqlChat.Client;
 
-/// <summary>
-/// Wires schema sources and builds a <see cref="SqlChatClient"/>.
-/// </summary>
 public sealed class SqlChatBuilder
 {
     private ISchemaProvider? _schemaProvider;
+    private IQueryExecutor? _executor;
     private ISqlSecurityValidator? _sqlSecurityValidator;
     private SqlSecurityOptions? _sqlSecurityOptions;
     private ISqlGenerator? _generator;
+    private int _llmFixRetryMax = 2;
+    private SchemaEnrichment? _enrichment;
+
+    public SqlChatBuilder UseConnectionString(string connectionString, int queryRetryMax = 3)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        var options = new SqlChatOptions { ConnectionString = connectionString, QueryRetryMax = queryRetryMax };
+        _schemaProvider = new PostgresSchemaProvider(connectionString);
+        _executor = new PostgresQueryExecutor(options);
+        return this;
+    }
+
+    public SqlChatBuilder UseEntityFramework(DbContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var cs = context.Database.GetConnectionString()
+            ?? throw new InvalidOperationException("DbContext has no connection string configured.");
+        _schemaProvider = new PostgresSchemaProvider(cs);
+        return this;
+    }
 
     public SqlChatBuilder UseSchema(SchemaCatalog catalog)
     {
@@ -25,38 +47,18 @@ public sealed class SqlChatBuilder
         return this;
     }
 
-    /// <summary>
-    /// Use the metadata from an EF Core model (typically <c>dbContext.Model</c>).
-    /// </summary>
-    public SqlChatBuilder UseEntityFramework(IModel model)
-    {
-        ArgumentNullException.ThrowIfNull(model);
-        _schemaProvider = new EfCoreSchemaProvider(model);
-        return this;
-    }
-
-    /// <summary>
-    /// Plug in an LLM-backed or custom <see cref="ISqlGenerator"/> (e.g. AnthropicSqlGenerator).
-    /// Defaults to <see cref="SimpleTextToSqlGenerator"/> when not set.
-    /// </summary>
-    public SqlChatBuilder UseGenerator(ISqlGenerator generator)
-    {
-        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
-        return this;
-    }
-
-    /// <summary>
-    /// Advanced: supply a custom <see cref="ISchemaProvider"/> (tests, caching, composite sources, etc.).
-    /// </summary>
     public SqlChatBuilder UseSchemaProvider(ISchemaProvider provider)
     {
         _schemaProvider = provider ?? throw new ArgumentNullException(nameof(provider));
         return this;
     }
 
-    /// <summary>
-    /// Replace the default <see cref="SqlSecurityValidator"/> (e.g. custom rules or tests).
-    /// </summary>
+    public SqlChatBuilder UseGenerator(ISqlGenerator generator)
+    {
+        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
+        return this;
+    }
+
     public SqlChatBuilder UseSqlSecurity(ISqlSecurityValidator validator)
     {
         _sqlSecurityValidator = validator ?? throw new ArgumentNullException(nameof(validator));
@@ -64,10 +66,6 @@ public sealed class SqlChatBuilder
         return this;
     }
 
-    /// <summary>
-    /// Configure the built-in <see cref="SqlSecurityValidator"/> (heuristic checks; optional T-SQL AST).
-    /// Ignored if <see cref="UseSqlSecurity(ISqlSecurityValidator)"/> was called with a custom validator.
-    /// </summary>
     public SqlChatBuilder UseSqlSecurity(SqlSecurityOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -76,18 +74,53 @@ public sealed class SqlChatBuilder
         return this;
     }
 
+    public SqlChatBuilder WithLlmFixRetryMax(int max)
+    {
+        _llmFixRetryMax = max;
+        return this;
+    }
+
+    public SqlChatBuilder Enrich(Action<SchemaEnrichmentBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var builder = new SchemaEnrichmentBuilder();
+        configure(builder);
+        _enrichment = builder.Build();
+        return this;
+    }
+
+    public SqlChatBuilder Enrich(SchemaEnrichment enrichment)
+    {
+        _enrichment = enrichment ?? throw new ArgumentNullException(nameof(enrichment));
+        return this;
+    }
+
+    public SqlChatBuilder EnrichFromFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var json = File.ReadAllText(path);
+        _enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException($"Failed to deserialize enrichment file: {path}");
+        return this;
+    }
+
     public SqlChatClient Build()
     {
         if (_schemaProvider is null)
             throw new InvalidOperationException(
-                "Configure a schema source with UseSchema, UseEntityFramework, or UseSchemaProvider before calling Build().");
+                "Configure a schema source with UseConnectionString, UseSchema, UseEntityFramework, or UseSchemaProvider before calling Build().");
 
         if (_generator is null)
             throw new InvalidOperationException(
-                "Configure a SQL generator with UseGenerator before calling Build(). Example: .UseGenerator(new AnthropicSqlGenerator(options))");
+                "Configure a SQL generator with UseGenerator before calling Build().");
+
+        var schemaProvider = _enrichment is null
+            ? _schemaProvider
+            : new EnrichingSchemaProvider(_schemaProvider, _enrichment);
 
         var sqlSecurity = _sqlSecurityValidator ?? new SqlSecurityValidator(_sqlSecurityOptions);
-        var engine = new TextToSqlEngine(_schemaProvider, _generator, sqlSecurity);
-        return new SqlChatClient(engine);
+        var engine = new TextToSqlEngine(schemaProvider, _generator, sqlSecurity);
+        return new SqlChatClient(engine, _executor, _llmFixRetryMax);
     }
 }

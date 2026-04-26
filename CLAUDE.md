@@ -79,41 +79,37 @@ Located in `SqlChat.Domain/Models/`:
 
 `Description` on both `TableDescriptor` and `ColumnDescriptor` is the primary hook for LLM context. It is fed directly into the Anthropic system prompt by `SchemaPromptBuilder`. `SemanticTags` on columns are `IReadOnlySet<string>` (case-insensitive).
 
-### Public API (Target Design)
-
-> The API shape below reflects the **intended architecture**. Some of this is not yet fully implemented — use it as the target when adding or refactoring code.
+### Public API
 
 **Primary DI path — connection string:**
 ```csharp
-services.AddSqlChat(opts =>
-{
-    opts.ConnectionString = "Host=...;Database=...";
-    opts.Dialect          = SqlDialect.PostgreSql;
-    opts.AnthropicApiKey  = "sk-ant-...";
-    opts.QueryRetryMax    = 3;   // transient DB retries (Polly)
-    opts.LlmFixRetryMax   = 2;   // bad SQL → LLM retry loops
-});
+services.AddSqlChat()
+    .UsePostgresConnectionString("Host=...;Database=...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
 ```
 
 **EF Core convenience — connection string extraction only:**
 ```csharp
 // Extracts connection string from DbContext; does NOT walk the EF model
-services.AddSqlChat<AppDbContext>(opts =>
-{
-    opts.AnthropicApiKey = "sk-ant-...";
-});
+services.AddSqlChat()
+    .UseEntityFramework<AppDbContext>()
+    .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
 ```
 
 **Schema enrichment — optional, merged on top of introspection:**
 ```csharp
-services.AddSqlChat(opts => { ... })
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .Enrich(schema => schema
         .ExcludeTable("audit_log")
         .Table("orders", t => t
             .Column("status_id", "1 = pending, 2 = shipped, 3 = delivered, 4 = cancelled")));
 
-// Or from a JSON/YAML file (deserialises to same object as fluent builder)
-services.AddSqlChat(opts => { ... })
+// Or from a JSON file (deserialises to same object as the fluent builder)
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .EnrichFromFile("sqlchat-schema.json");
 ```
 
@@ -173,7 +169,7 @@ var text = response.FirstMessage?.Text
 
 ### EF Core Integration (Connection String Only)
 
-The EF convenience path (`AddSqlChat<TContext>()`) extracts the connection string from the registered `DbContext` via `context.Database.GetConnectionString()` and passes it to `PostgresSchemaProvider`. **It does not walk the EF model.** `EfCoreSchemaProvider` (which maps `IModel` → `SchemaCatalog`) is legacy and will be removed once the connection-string-primary architecture is fully implemented.
+The EF convenience path (`UseEntityFramework<TContext>()`) extracts the connection string from the registered `DbContext` via `context.Database.GetConnectionString()` and passes it to `PostgresSchemaProvider`. **It does not walk the EF model.** `EfCoreSchemaProvider` (which maps `IModel` → `SchemaCatalog`) is legacy and will be removed.
 
 ### Security Constraint — Read-Only Queries Only
 
@@ -193,23 +189,23 @@ Violations throw `SqlSecurityException`. This validator runs in `TextToSqlEngine
 
 ## Implementation Status
 
-The codebase is in a **pre-refactor state**. The architecture documented above reflects the target design. The table below tracks what exists today vs what needs to be built.
+The table below tracks what exists today vs what needs to be built.
 
 | Feature | Status | Notes |
 |---|---|---|
-| `PostgresSchemaProvider` — DB introspection | ✅ Exists | Primary schema source going forward |
-| `AnthropicSqlGenerator` — LLM SQL generation | ✅ Exists | Uses `Anthropic.SDK` v3.3.0 |
-| `SqlSecurityValidator` — heuristic read-only enforcement | ✅ Exists | Blocks all non-SELECT |
-| `SchemaCatalogBuilder` — manual schema construction | ✅ Exists | Used in tests; basis for enrichment layer |
-| `EfCoreSchemaProvider` — EF model walking | ⚠️ Legacy | To be replaced; EF path should extract connection string only |
-| `AddSqlChat(opts => { ConnectionString, ... })` | 🔲 Planned | Current API takes no options object; connection string is a separate call |
-| `QueryAsync<T>()` / `QuerySingleAsync<T>()` | 🔲 Planned | Currently only `GenerateSqlAsync()` exists (returns raw string) |
-| `SqlChatResult` / `SqlChatResult<T>` / `SqlChatCollectionResult<T>` | 🔲 Planned | No result types exist yet |
-| `IQueryExecutor` — Dapper execution layer | 🔲 Planned | No execution layer exists; SqlChat currently returns SQL strings only |
-| Polly retry on transient DB errors (`QueryRetryMax`) | 🔲 Planned | Polly exists in `DapperRetryExtensions` but is hard-coded and not wired to execution |
-| LLM fix-and-retry loop (`LlmFixRetryMax`) | 🔲 Planned | No retry loop in `TextToSqlEngine` |
-| `.Enrich()` / `.EnrichFromFile()` API | 🔲 Planned | No enrichment API exists |
-| `ExcludeTable` / column-level visibility filtering | 🔲 Planned | No filtering mechanism exists |
+| `PostgresSchemaProvider` — DB introspection | ✅ Done | Primary schema source |
+| `AnthropicSqlGenerator` — LLM SQL generation | ✅ Done | Uses `Anthropic.SDK` v3.3.0 |
+| `SqlSecurityValidator` — heuristic read-only enforcement | ✅ Done | Blocks all non-SELECT |
+| `SchemaCatalogBuilder` — manual schema construction | ✅ Done | Used in tests; basis for enrichment layer |
+| `QueryAsync<T>()` / `QuerySingleAsync<T>()` | ✅ Done | Fully wired with LLM retry loop |
+| `SqlChatResult` / `SqlChatResult<T>` / `SqlChatCollectionResult<T>` | ✅ Done | Result types with `IsSuccess`/`IsFailed`/`Error` |
+| `IQueryExecutor` / `PostgresQueryExecutor` — Dapper + Polly execution | ✅ Done | Retries transient `NpgsqlException` via Polly |
+| LLM fix-and-retry loop (`LlmFixRetryMax`) | ✅ Done | In `TextToSqlEngine.RunWithLlmRetryAsync` |
+| `.Enrich()` / `.EnrichFromFile()` API | ✅ Done | `SchemaEnrichmentBuilder`, `EnrichingSchemaProvider` decorator |
+| `ExcludeTable` / `ExcludeColumn` / column descriptions | ✅ Done | Applied by `EnrichingSchemaProvider` at schema fetch time |
+| EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
+| `EfCoreSchemaProvider` — EF model walking | ⚠️ Legacy | Still exists; not used by primary paths; pending removal |
+| `AddSqlChat(opts => { ConnectionString, ... })` | 🔲 Planned | Unified DI init with single options object |
 | `internal` access modifier + `InternalsVisibleTo` | 🔲 Planned | All classes currently `public` |
 
 **When implementing**: work top-to-bottom through the planned items. Each item that touches the public API surface should be reviewed against `docs/VISION.md` before coding.
@@ -282,8 +278,21 @@ The key is read at construction time by `AnthropicSqlGenerator`: `options.Anthro
 
 ### Running an End-to-End Smoke Test
 
-> This uses the **current pre-refactor API** (`GenerateSqlAsync` returning a SQL string). Once `QueryAsync<T>` and the execution layer are implemented, update this example.
+**Against a live Postgres DB** (full pipeline — generate + execute):
+```csharp
+var client = new SqlChatBuilder()
+    .UseConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
+    .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
+    {
+        AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    }))
+    .Build();
 
+SqlChatCollectionResult<dynamic> result = await client.QueryAsync<dynamic>("show me all users");
+Console.WriteLine(result.Sql);
+```
+
+**SQL generation only** (no DB needed — useful for testing the LLM output):
 ```csharp
 var schema = new SchemaCatalogBuilder()
     .AddTable("users", t => t
@@ -293,13 +302,13 @@ var schema = new SchemaCatalogBuilder()
 
 var client = new SqlChatBuilder()
     .UseSchema(schema)
-    .UseGenerator(new AnthropicSqlGenerator(new SqlChatAiOptions
+    .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
     {
         AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
     }))
     .Build();
 
-var sql = await client.GenerateSqlAsync("Find all users");
+string sql = await client.GenerateSqlAsync("find all users");
 Console.WriteLine(sql);
 ```
 

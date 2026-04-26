@@ -5,7 +5,7 @@ This repo is organized as a small set of focused libraries. The goal is:
 - Keep **`SqlChat.Domain`** free of infrastructure dependencies (EF, HTTP, LLM SDKs, etc.)
 - Keep **`SqlChat.Client`** as the public “entry point” (builder/facade) for consumers
 - Keep **`SqlChat.Service`** as orchestration/business logic (generation + validation)
-- Keep **`SqlChat.Data`** as persistence/schema-extraction adapters (EF Core, etc.)
+- Keep **`SqlChat.Data`** as persistence/infrastructure adapters: schema introspection (`PostgresSchemaProvider`, `EfCoreSchemaProvider`), query execution (`PostgresQueryExecutor`), and schema enrichment (`EnrichingSchemaProvider`)
 
 ### Folder layout (per project)
 

@@ -25,16 +25,13 @@ foreach (Order order in result.Data) { ... }
 
 ### Primary: connection string
 
-Point SqlChat at your database with a connection string — it introspects the schema automatically:
+Point SqlChat at your database with a connection string — it introspects the schema automatically via `INFORMATION_SCHEMA`:
 
 ```csharp
 // Program.cs
-services.AddSqlChat(opts =>
-{
-    opts.ConnectionString = "Host=localhost;Database=mydb;Username=...;Password=...";
-    opts.Dialect          = SqlDialect.PostgreSql;
-    opts.AnthropicApiKey  = builder.Configuration["Anthropic:ApiKey"];
-});
+services.AddSqlChat()
+    .UsePostgresConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"]);
 ```
 
 Then inject `SqlChatClient` and query:
@@ -63,10 +60,23 @@ public class ReportService(SqlChatClient sqlChat)
 If you already have a `DbContext` registered, pass it as a type argument — SqlChat extracts the connection string from it. No EF model walking, no entity mapping.
 
 ```csharp
-services.AddSqlChat<AppDbContext>(opts =>
-{
-    opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"];
-});
+services.AddSqlChat()
+    .UseEntityFramework<AppDbContext>()
+    .UseAnthropic(opts => opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"]);
+```
+
+### Without DI
+
+```csharp
+var client = new SqlChatBuilder()
+    .UseConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
+    .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
+    {
+        AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    }))
+    .Build();
+
+SqlChatCollectionResult<Order> result = await client.QueryAsync<Order>("all orders this month");
 ```
 
 ---
@@ -103,7 +113,9 @@ SqlChat introspects your database automatically. For better SQL quality on compl
 
 ```csharp
 // In code
-services.AddSqlChat(opts => { ... })
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .Enrich(schema => schema
         .ExcludeTable("audit_log")
         .Table("orders", t => t
@@ -112,12 +124,32 @@ services.AddSqlChat(opts => { ... })
         .Table("customers", t => t
             .Description("All registered customers including inactive accounts")));
 
-// From a JSON or YAML file
-services.AddSqlChat(opts => { ... })
+// From a JSON file
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .EnrichFromFile("sqlchat-schema.json");
 ```
 
-Enrichment is additive — it merges on top of the introspected schema. Use `ExcludeTable` to hide tables you don't want the LLM to know about (security, noise reduction).
+**JSON file format:**
+
+```json
+{
+  "excludedTables": ["audit_log"],
+  "tables": {
+    "orders": {
+      "columns": {
+        "status_id": { "description": "1 = pending, 2 = shipped, 3 = delivered, 4 = cancelled" }
+      }
+    },
+    "customers": {
+      "description": "All registered customers including inactive accounts"
+    }
+  }
+}
+```
+
+Enrichment is additive — it merges on top of the introspected schema. Use `ExcludeTable` / `ExcludeColumn` to hide tables or columns you don't want the LLM to see.
 
 ---
 
@@ -143,14 +175,17 @@ SqlChat handles two categories of failure internally:
 | Transient DB errors (timeouts, connection resets) | Retried with exponential backoff via Polly |
 | Bad SQL from the LLM (syntax errors at execution) | DB error fed back to LLM with context; generation retried |
 
-Configure thresholds in options:
+Configure thresholds via `UseAnthropic` options and `WithOptions`:
 
 ```csharp
-services.AddSqlChat(opts =>
-{
-    opts.QueryRetryMax  = 3;  // default: 3 — transient DB retries
-    opts.LlmFixRetryMax = 2;  // default: 2 — LLM fix-and-retry loops
-});
+services.AddSqlChat()
+    .UsePostgresConnectionString("...", queryRetryMax: 3)
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
+    .WithOptions(opts =>
+    {
+        opts.QueryRetryMax  = 3;  // transient DB retries
+        opts.LlmFixRetryMax = 2;  // LLM fix-and-retry loops
+    });
 ```
 
 ---
@@ -159,8 +194,6 @@ services.AddSqlChat(opts =>
 
 | Property | Default | Description |
 |---|---|---|
-| `ConnectionString` | required | PostgreSQL connection string |
-| `Dialect` | `PostgreSql` | SQL dialect hint sent to the LLM |
 | `AnthropicApiKey` | `null` | Falls back to `ANTHROPIC_API_KEY` env var |
 | `AnthropicModel` | `"claude-opus-4-7"` | Model used for SQL generation |
 | `MaxOutputTokens` | `2048` | Max tokens in the generated SQL response |
@@ -173,8 +206,8 @@ services.AddSqlChat(opts =>
 
 ```
 SqlChat.Domain   → Core abstractions and domain models (no infrastructure deps)
-SqlChat.Data     → Schema introspection (PostgreSQL via Dapper) and query execution
-SqlChat.Service  → Orchestration, retry logic, and SQL security validation
+SqlChat.Data     → Schema introspection and query execution (PostgreSQL via Dapper + Polly)
+SqlChat.Service  → Orchestration, LLM retry loop, and SQL security validation
 SqlChat.Ai       → Anthropic LLM-backed SQL generation
 SqlChat.Client   → Public API facade and DI registration
 ```

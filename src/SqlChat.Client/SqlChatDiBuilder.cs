@@ -1,7 +1,13 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Builders;
+using SqlChat.Domain.Models;
+using SqlChat.Domain.Options;
 using SqlChat.Service.Engine;
 using SqlChat.Service.Security;
 
@@ -16,19 +22,33 @@ public sealed class SqlChatDiBuilder
         Services = services;
         services.AddSingleton<ISqlSecurityValidator, SqlSecurityValidator>();
         services.AddScoped<TextToSqlEngine>();
-        services.AddScoped<SqlChatClient>();
+        services.AddScoped<SqlChatClient>(sp => new SqlChatClient(
+            sp.GetRequiredService<TextToSqlEngine>(),
+            sp.GetService<IQueryExecutor>(),
+            sp.GetService<SqlChatOptions>()?.LlmFixRetryMax ?? 2));
     }
 
     public SqlChatDiBuilder UseEntityFramework<TContext>() where TContext : DbContext
     {
-        Services.AddScoped<ISchemaProvider>(sp =>
-            new EfCoreSchemaProvider(sp.GetRequiredService<TContext>().Model));
+        Services.AddScoped<PostgresSchemaProvider>(sp =>
+        {
+            var context = sp.GetRequiredService<TContext>();
+            var cs = context.Database.GetConnectionString()
+                ?? throw new InvalidOperationException($"{typeof(TContext).Name} has no connection string configured.");
+            return new PostgresSchemaProvider(cs);
+        });
+        Services.AddScoped<ISchemaProvider>(sp => sp.GetRequiredService<PostgresSchemaProvider>());
         return this;
     }
 
     public SqlChatDiBuilder UsePostgresConnectionString(string connectionString)
     {
-        Services.AddSingleton<ISchemaProvider>(new PostgresSchemaProvider(connectionString));
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        Services.AddSingleton(new PostgresSchemaProvider(connectionString));
+        Services.AddSingleton<ISchemaProvider>(sp => sp.GetRequiredService<PostgresSchemaProvider>());
+        Services.AddSingleton<IQueryExecutor>(sp =>
+            new PostgresQueryExecutor(
+                sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString }));
         return this;
     }
 
@@ -46,5 +66,43 @@ public sealed class SqlChatDiBuilder
         Services.AddSingleton<ISqlSecurityValidator>(sp =>
             new SqlSecurityValidator(sp.GetRequiredService<SqlSecurityOptions>()));
         return this;
+    }
+
+    public SqlChatDiBuilder WithOptions(Action<SqlChatOptions> configure)
+    {
+        var options = new SqlChatOptions();
+        configure(options);
+        Services.AddSingleton(options);
+        return this;
+    }
+
+    public SqlChatDiBuilder Enrich(Action<SchemaEnrichmentBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var builder = new SchemaEnrichmentBuilder();
+        configure(builder);
+        return Enrich(builder.Build());
+    }
+
+    public SqlChatDiBuilder Enrich(SchemaEnrichment enrichment)
+    {
+        ArgumentNullException.ThrowIfNull(enrichment);
+        Services.AddSingleton(enrichment);
+        Services.RemoveAll<ISchemaProvider>();
+        Services.AddSingleton<ISchemaProvider>(sp =>
+            new EnrichingSchemaProvider(
+                sp.GetRequiredService<PostgresSchemaProvider>(),
+                sp.GetRequiredService<SchemaEnrichment>()));
+        return this;
+    }
+
+    public SqlChatDiBuilder EnrichFromFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var json = File.ReadAllText(path);
+        var enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException($"Failed to deserialize enrichment file: {path}");
+        return Enrich(enrichment);
     }
 }

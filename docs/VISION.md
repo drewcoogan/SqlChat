@@ -27,7 +27,7 @@ If the caller already has a `DbContext` registered, they can pass it as a type a
 
 Introspection gives SqlChat the structure of the database (tables, columns, types, PKs, FKs). It cannot give it semantics — what `status_id = 3` means, which tables are soft-deleted, which columns contain PII. Callers layer this context on top via the enrichment API, which merges descriptions into the introspected schema before it reaches the LLM prompt.
 
-Enrichment can be defined in code or loaded from a JSON/YAML file. Both serialise to the same underlying object, so the enrichment source is interchangeable.
+Enrichment can be defined in code or loaded from a JSON file. Both produce the same underlying `SchemaEnrichment` object, so the enrichment source is interchangeable.
 
 Enrichment also controls **table and column visibility** — callers can exclude tables or columns they don't want the LLM to know about, for both quality and security reasons.
 
@@ -80,27 +80,33 @@ class SqlChatCollectionResult<T> : SqlChatResult
 ### DI registration
 
 ```csharp
-services.AddSqlChat(opts =>
-{
-    opts.ConnectionString = "Host=...;Database=...";
-    opts.Dialect          = SqlDialect.PostgreSql;
-    opts.AnthropicApiKey  = "sk-ant-...";
-    opts.QueryRetryMax    = 3;  // transient DB errors
-    opts.LlmFixRetryMax   = 2;  // bad SQL → LLM retry
-});
+// Primary: connection string
+services.AddSqlChat()
+    .UsePostgresConnectionString("Host=...;Database=...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
 
 // EF convenience — extracts connection string from DbContext only
-services.AddSqlChat<AppDbContext>(opts =>
-{
-    opts.AnthropicApiKey = "sk-ant-...";
-});
+services.AddSqlChat()
+    .UseEntityFramework<AppDbContext>()
+    .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
+
+// Retry thresholds
+services.AddSqlChat()
+    .UsePostgresConnectionString("...", queryRetryMax: 3)
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
+    .WithOptions(opts =>
+    {
+        opts.LlmFixRetryMax = 2;
+    });
 ```
 
 ### Schema enrichment (optional)
 
 ```csharp
-// In code
-services.AddSqlChat(opts => { ... })
+// In code — fluent builder
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .Enrich(schema => schema
         .ExcludeTable("audit_log")
         .Table("orders", t => t
@@ -108,8 +114,10 @@ services.AddSqlChat(opts => { ... })
         .Table("customers", t => t
             .Description("All registered customers including inactive accounts")));
 
-// From file — deserialises to the same object as the fluent builder
-services.AddSqlChat(opts => { ... })
+// From a JSON file — deserialises to the same object as the fluent builder
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .EnrichFromFile("sqlchat-schema.json");
 ```
 

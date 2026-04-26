@@ -1,9 +1,9 @@
 using Anthropic.SDK;
 using Anthropic.SDK.Messaging;
-using SqlChat.Ai.Options;
 using SqlChat.Ai.Prompts;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Models;
+using SqlChat.Domain.Options;
 
 namespace SqlChat.Ai.Generators;
 
@@ -11,9 +11,9 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly AnthropicClient _client;
-    private readonly SqlChatAiOptions _options;
+    private readonly SqlChatOptions _options;
 
-    public AnthropicSqlGenerator(SqlChatAiOptions options)
+    public AnthropicSqlGenerator(SqlChatOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;

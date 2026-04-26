@@ -9,7 +9,9 @@
       "Bash(dotnet script *)",
       "Read(//private/tmp/**)",
       "Bash(cat)",
-      "Bash(dotnet run *)"
+      "Bash(dotnet run *)",
+      "Bash(dotnet restore *)",
+      "Bash(dotnet test *)"
     ]
   }
 }

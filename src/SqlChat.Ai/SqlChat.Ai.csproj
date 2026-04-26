@@ -2,7 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
     <ProjectReference Include="..\SqlChat.Client\SqlChat.Client.csproj" />
-    <PackageReference Include="Anthropic" Version="1.0.0" />
+    <PackageReference Include="Anthropic.SDK" Version="3.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
   </ItemGroup>
 </Project>

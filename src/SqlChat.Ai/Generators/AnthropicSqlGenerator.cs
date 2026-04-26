@@ -1,4 +1,5 @@
-using Anthropic;
+using Anthropic.SDK;
+using Anthropic.SDK.Messaging;
 using SqlChat.Ai.Options;
 using SqlChat.Ai.Prompts;
 using SqlChat.Domain.Abstractions;
@@ -9,7 +10,7 @@ namespace SqlChat.Ai.Generators;
 public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
 {
     private readonly HttpClient _httpClient;
-    private readonly AnthropicApi _api;
+    private readonly AnthropicClient _client;
     private readonly SqlChatAiOptions _options;
 
     public AnthropicSqlGenerator(SqlChatAiOptions options)
@@ -18,39 +19,41 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
         _options = options;
 
         var apiKey = options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-            ?? throw new InvalidOperationException("Anthropic API key is not configured. Set AnthropicApiKey or the ANTHROPIC_API_KEY environment variable.");
+            ?? throw new InvalidOperationException(
+                "Anthropic API key is not configured. Set AnthropicApiKey or the ANTHROPIC_API_KEY environment variable.");
 
         _httpClient = new HttpClient();
-        _api = new AnthropicApi(_httpClient, new Uri("https://api.anthropic.com"));
-        _api.AuthorizeUsingApiKey(apiKey);
+        _client = new AnthropicClient(new APIAuthentication(apiKey), _httpClient);
     }
 
     public async Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken cancellationToken = default)
     {
         var systemPrompt = SchemaPromptBuilder.BuildSystemPrompt(schema, _options.Dialect);
 
-        var response = await _api.CreateMessageAsync(new CreateMessageRequest
+        var response = await _client.Messages.GetClaudeMessageAsync(new MessageParameters
         {
             Model = _options.AnthropicModel,
             MaxTokens = _options.MaxOutputTokens,
-            System = systemPrompt,
-            Messages = [naturalLanguage.AsUserMessage()],
-        }, cancellationToken).ConfigureAwait(false);
+            SystemMessage = systemPrompt,
+            Messages =
+            [
+                new Message
+                {
+                    Role = RoleType.User,
+                    Content = [new TextContent { Text = naturalLanguage }]
+                }
+            ]
+        }, null, cancellationToken).ConfigureAwait(false);
 
-        string? text;
-        if (response.Content.IsValue2)
-        {
-            var block = response.Content.Value2.FirstOrDefault(b => b.IsText);
-            text = block.IsText ? block.Text.Text : null;
-        }
-        else
-        {
-            text = response.Content.Value1;
-        }
+        var text = response.FirstMessage?.Text
+            ?? throw new InvalidOperationException("Anthropic returned no text content.");
 
-        return SchemaPromptBuilder.ExtractSql(
-            text ?? throw new InvalidOperationException("Anthropic returned no text content."));
+        return SchemaPromptBuilder.ExtractSql(text);
     }
 
-    public void Dispose() => _httpClient.Dispose();
+    public void Dispose()
+    {
+        _client.Dispose();
+        _httpClient.Dispose();
+    }
 }

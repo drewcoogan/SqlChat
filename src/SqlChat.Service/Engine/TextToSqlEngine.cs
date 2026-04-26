@@ -77,7 +77,7 @@ public sealed class TextToSqlEngine
         return await RunWithLlmRetryAsync(
             naturalLanguage,
             schema,
-            (sql, ct) => executor.QuerySingleAsync<T>(sql, ct),
+            executor.QuerySingleAsync<T>,
             llmFixRetryMax,
             cancellationToken).ConfigureAwait(false);
     }

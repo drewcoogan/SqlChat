@@ -259,22 +259,24 @@ The table below tracks what exists today vs what needs to be built.
 
 ## Environment & Local Setup
 
-### API Key
+### API Key & Environment
 
-Copy `.env.example` to `.env` and fill in your key — the test runner loads it automatically via `DotNetEnv`:
+The integration test environment file lives in `tests/SqlChat.Tests/`. Copy the example and fill in your values:
 
 ```bash
-cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
+# edit .env — set ANTHROPIC_API_KEY, SQLCHAT_CONNECTION_STRING, and SQLCHAT_RUN_INTEGRATION_TESTS=true
 ```
 
-Alternatively, export it in your shell:
+Alternatively, export variables in your shell:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+export SQLCHAT_CONNECTION_STRING="Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=..."
+export SQLCHAT_RUN_INTEGRATION_TESTS=true
 ```
 
-The key is read at construction time by `AnthropicSqlGenerator`: `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it.
+`ANTHROPIC_API_KEY` is read at construction time by `AnthropicSqlGenerator` via `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it. See `.env.example` for all available variables and their defaults.
 
 ### Running an End-to-End Smoke Test
 
@@ -339,7 +341,7 @@ Note: `SqlChat.Ai` references `SqlChat.Client` (not just Domain) because `SqlCha
 These are **intentional design choices**, not bugs. Don't "fix" them without a deliberate plan.
 
 ### Azure OpenAI — Placeholder Only
-`SqlChatAiOptions` has `AzureOpenAiEndpoint`, `AzureOpenAiApiKey`, and `AzureOpenAiDeployment` properties, and `.env.example` documents Azure vars — but **no `AzureOpenAiSqlGenerator` exists**. These are stubs. The `SQLCHAT_PROVIDER` env var in `.env.example` is also not read by any code; provider selection happens at construction time. Do not implement Azure OpenAI piecemeal — remove the placeholder properties and design the generator together.
+There are no Azure OpenAI generator or options classes. Do not implement it piecemeal — if Azure OpenAI support is added it needs a full implementation (generator + DI extension + options) designed together.
 
 ### SemanticTags — Not Wired Up
 `ColumnDescriptor.SemanticTags` (`IReadOnlySet<string>`, case-insensitive) exists on the domain model and can be set via `SchemaCatalogBuilder`, but **no schema provider populates it** and **`SchemaPromptBuilder` does not include it** in the system prompt. The hook is there for future enrichment; don't treat its absence as a bug.

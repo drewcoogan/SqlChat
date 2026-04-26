@@ -41,10 +41,8 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
                 foreach (var property in Entity.GetProperties())
                 {
                     var columnName = property.GetColumnName();
-                    if (columnName is null)
-                        continue;
-
-                    if (columns.ContainsKey(columnName))
+                    
+                    if (columnName is null || columns.ContainsKey(columnName))
                         continue;
 
                     columns[columnName] = MapProperty(property);
@@ -85,20 +83,14 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
         return ColumnDescriptor.Create(name, storeType, description: TryGetComment(property), isNullable, isPk, fkRef, semanticTags: null);
     }
 
-    private static string? TryGetRelationalStoreType(IProperty property)
-    {
-        try
-        {
-            return property.GetColumnType();
-        }
-        catch (InvalidCastException)
-        {
-            return null;
-        }
-    }
-
     private static string? TryGetStoreTypeFromTypeMapping(CoreTypeMapping typeMapping) =>
         typeMapping is RelationalTypeMapping relational ? relational.StoreType : null;
+
+    private static string? TryGetRelationalStoreType(IProperty property)
+    {
+        try { return property.GetColumnType(); }
+        catch (InvalidCastException) { return null; }
+    }
 
     private static string? TryGetComment(IReadOnlyEntityType entity)
     {

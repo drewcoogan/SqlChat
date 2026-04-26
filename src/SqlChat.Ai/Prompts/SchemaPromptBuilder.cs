@@ -9,9 +9,7 @@ internal static class SchemaPromptBuilder
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are an expert SQL query generator.");
-        sb.AppendLine(dialect == SqlDialect.SqlServer
-            ? "Database dialect: SQL Server (T-SQL)"
-            : "Database dialect: PostgreSQL");
+        sb.AppendLine(dialect == SqlDialect.SqlServer ? "Database dialect: SQL Server (T-SQL)" : "Database dialect: PostgreSQL");
         sb.AppendLine();
         sb.AppendLine("Generate a valid SELECT query that answers the user's question using only the schema below.");
         sb.AppendLine("Return ONLY the SQL query — no explanation, no markdown, no code fences.");

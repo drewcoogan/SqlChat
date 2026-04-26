@@ -9,21 +9,19 @@ namespace SqlChat.Ai.Generators;
 
 public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
 {
+    private readonly SqlChatOptions _options;
     private readonly HttpClient _httpClient;
     private readonly AnthropicClient _client;
-    private readonly SqlChatOptions _options;
 
     public AnthropicSqlGenerator(SqlChatOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.AnthropicApiKey, nameof(options.AnthropicApiKey));
         _options = options;
 
-        var apiKey = options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-            ?? throw new InvalidOperationException(
-                "Anthropic API key is not configured. Set AnthropicApiKey or the ANTHROPIC_API_KEY environment variable.");
-
-        _httpClient = new HttpClient();
-        _client = new AnthropicClient(new APIAuthentication(apiKey), _httpClient);
+        var httpHandler = new HttpClientHandler(); // TODO: we can add parameters here for proxies into options if we want
+        _httpClient = new HttpClient(httpHandler);
+        _client = new AnthropicClient(new APIAuthentication(options.AnthropicApiKey), _httpClient);
     }
 
     public async Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken cancellationToken = default)
@@ -45,10 +43,11 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
             ]
         }, null, cancellationToken).ConfigureAwait(false);
 
-        var text = response.FirstMessage?.Text
-            ?? throw new InvalidOperationException("Anthropic returned no text content.");
 
-        return SchemaPromptBuilder.ExtractSql(text);
+        if (response.FirstMessage?.Text is { } text && !string.IsNullOrWhiteSpace(text))
+            return SchemaPromptBuilder.ExtractSql(text);
+
+        throw new InvalidOperationException("Anthropic returned no text content.");
     }
 
     public void Dispose()

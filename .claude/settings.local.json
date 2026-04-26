@@ -11,7 +11,10 @@
       "Bash(cat)",
       "Bash(dotnet run *)",
       "Bash(dotnet restore *)",
-      "Bash(dotnet test *)"
+      "Bash(dotnet test *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet fsi *)",
+      "Read(//Users/andrewcoogan/.nuget/packages/**)"
     ]
   }
 }

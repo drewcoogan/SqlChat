@@ -9,10 +9,9 @@ public static class DapperRetryExtensions
     private static readonly ResiliencePipeline DefaultPipeline = new ResiliencePipelineBuilder()
         .AddRetry(new Polly.Retry.RetryStrategyOptions
         {
-            MaxRetryAttempts = 3,
-            Delay = TimeSpan.FromMilliseconds(200),
-            BackoffType = DelayBackoffType.Exponential,
-            UseJitter = true,
+            MaxRetryAttempts = 5,
+            Delay = TimeSpan.FromSeconds(1),
+            BackoffType = DelayBackoffType.Exponential
         })
         .Build();
 

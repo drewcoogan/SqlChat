@@ -167,6 +167,15 @@ public sealed class DatabaseFixture : IAsyncLifetime
                 .Table("sqlchat_test_order_items", t => t
                     .Description("Individual line items within an order.")
                     .Column("unit_price_cents", "Unit price in US cents.")
-                    .Column("order_id", "Foreign key to sqlchat_test_orders.id.")))
+                    .Column("order_id", "Foreign key to sqlchat_test_orders.id."))
+                .AddExample(
+                    "Show all customers",
+                    "SELECT id, first_name, last_name, email, created_at FROM sqlchat_test_customers")
+                .AddExample(
+                    "Show all delivered orders",
+                    "SELECT id, customer_id, status, total_cents, created_at FROM sqlchat_test_orders WHERE status = 'delivered'")
+                .AddExample(
+                    "Show all orders for a customer by email",
+                    "SELECT o.id, o.status, o.total_cents, o.created_at FROM sqlchat_test_orders o JOIN sqlchat_test_customers c ON c.id = o.customer_id WHERE c.email = 'example@example.com'"))
             .Build();
 }

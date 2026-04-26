@@ -7,7 +7,7 @@ internal static class IntegrationConfig
     static IntegrationConfig()
     {
         Env.Load(Path.Combine(AppContext.BaseDirectory, ".env"),
-            new LoadOptions(setEnvVars: true, clobberExistingVars: true, onlyExactPath: true));
+            new LoadOptions(setEnvVars: true, clobberExistingVars: false, onlyExactPath: true));
     }
 
     public static bool IsEnabled =>

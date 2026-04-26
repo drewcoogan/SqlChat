@@ -33,6 +33,7 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
             Model = _options.AnthropicModel,
             MaxTokens = _options.MaxOutputTokens,
             SystemMessage = systemPrompt,
+            Temperature = 0,
             Messages =
             [
                 new Message

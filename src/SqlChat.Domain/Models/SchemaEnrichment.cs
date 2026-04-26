@@ -4,4 +4,5 @@ public sealed record SchemaEnrichment
 {
     public List<string> ExcludedTables { get; init; } = [];
     public Dictionary<string, TableEnrichment> Tables { get; init; } = [];
+    public List<ExampleQuery> Examples { get; init; } = [];
 }

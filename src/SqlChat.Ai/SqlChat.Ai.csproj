@@ -5,4 +5,10 @@
     <PackageReference Include="Anthropic.SDK" Version="3.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SqlChat.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

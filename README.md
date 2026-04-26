@@ -202,6 +202,40 @@ services.AddSqlChat()
 
 ---
 
+## Running Tests
+
+### Unit tests
+
+```bash
+dotnet test SqlChat.sln
+```
+
+Integration tests are skipped automatically unless explicitly enabled.
+
+### Integration tests
+
+Integration tests run against a live PostgreSQL database and call the Anthropic API. Copy the example env file and fill in your values:
+
+```bash
+cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
+```
+
+Then run:
+
+```bash
+dotnet test SqlChat.sln -e SQLCHAT_RUN_INTEGRATION_TESTS=true
+```
+
+Required variables in `.env`:
+
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `SQLCHAT_CONNECTION_STRING` | Postgres connection string (database must exist) |
+| `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
+
+---
+
 ## Project Structure
 
 ```

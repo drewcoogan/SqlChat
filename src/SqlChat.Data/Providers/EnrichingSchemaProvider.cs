@@ -29,7 +29,11 @@ public sealed class EnrichingSchemaProvider : ISchemaProvider
             .Select(ApplyTable)
             .ToList();
 
-        return catalog with { Tables = tables };
+        var examples = _enrichment.Examples.Count > 0
+            ? (IReadOnlyList<ExampleQuery>)_enrichment.Examples
+            : catalog.ExampleQueries;
+
+        return catalog with { Tables = tables, ExampleQueries = examples };
     }
 
     private TableDescriptor ApplyTable(TableDescriptor table)

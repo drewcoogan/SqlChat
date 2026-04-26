@@ -5,6 +5,7 @@ namespace SqlChat.Tests.Integration;
 /// SQLCHAT_RUN_INTEGRATION_TESTS=true is set in the environment or .env file.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
+[Trait("Category", "Integration")]
 public sealed class IntegrationFactAttribute : FactAttribute
 {
     public IntegrationFactAttribute()

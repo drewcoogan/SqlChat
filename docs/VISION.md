@@ -156,3 +156,96 @@ A caller drops SqlChat into an existing ASP.NET Core app, points it at their Pos
 - SQL Server support is not a current priority (Postgres is the target dialect)
 - Streaming SQL generation is not planned
 - Multi-LLM support (Azure OpenAI, etc.) is deferred until Anthropic integration is solid
+
+---
+
+## Future Features
+
+These are not part of the current MVP but are worth designing deliberately rather than bolting on later.
+
+### Vector Database / RAG Schema Retrieval
+
+**Problem it solves:** When a schema has many tables (20+), including the full schema in every prompt becomes expensive and hurts accuracy — the model pays attention to irrelevant tables and misses nuances in the relevant ones. RAG retrieval selects only the tables and columns that are semantically relevant to the user's question before building the prompt.
+
+**How it works:**
+1. At startup, embed each table/column description into a vector (using an embedding model)
+2. At query time, embed the user's natural language question
+3. Retrieve the top-k most semantically similar schema items using cosine similarity
+4. Build the system prompt using only those items rather than the full schema
+
+**Integration point:** A new `ISchemaRelevanceFilter` interface that wraps `ISchemaProvider` — the outer layer calls `GetSchemaAsync()` as normal and then filters the resulting `SchemaCatalog` down to the relevant subset before it reaches the prompt builder. No changes to `TextToSqlEngine` or `ISqlGenerator` required.
+
+**Cloud backend options (user provides credentials):**
+
+| Option | Notes |
+|---|---|
+| **pgvector** (Postgres extension) | Strongest fit — no new service needed if the user is already on Postgres. Enable the `pgvector` extension, store embeddings in a table, retrieve with `ORDER BY embedding <=> $query_embedding LIMIT k`. |
+| **Pinecone** | Managed cloud vector DB with a solid .NET SDK. Good for teams who want a dedicated vector service. Requires `PINECONE_API_KEY` and index name. |
+| **Azure AI Search** | Enterprise option with integrated vector + keyword hybrid search. Requires endpoint + API key. |
+| **Weaviate Cloud** | Open-source core with a managed cloud tier. Requires endpoint + API key. |
+
+**Proposed credential pattern:**
+```csharp
+// pgvector — reuses the existing Postgres connection string
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
+    .UseVectorSchemaFilter(opts =>
+    {
+        opts.Provider          = VectorProvider.PgVector;
+        opts.EmbeddingApiKey   = "...";  // e.g. VoyageAI or OpenAI for embeddings
+        opts.TopK              = 10;     // tables/columns to include
+        opts.SimilarityThreshold = 0.3;
+    });
+
+// Pinecone
+services.AddSqlChat()
+    .UsePostgresConnectionString("...")
+    .UseAnthropic(opts => opts.AnthropicApiKey = "...")
+    .UseVectorSchemaFilter(opts =>
+    {
+        opts.Provider        = VectorProvider.Pinecone;
+        opts.PineconeApiKey  = "...";
+        opts.PineconeIndex   = "sqlchat-schema";
+        opts.EmbeddingApiKey = "...";
+        opts.TopK            = 10;
+    });
+```
+
+**When to use it:** Once the schema exceeds ~15-20 tables, or when prompt costs become a concern. Below that threshold the full-schema approach is simpler and more predictable.
+
+---
+
+### Chain-of-Thought Prompting
+
+**Problem it solves:** For complex queries involving multiple joins, subqueries, or window functions, the model produces better SQL when it reasons through the approach before writing code — similar to how a developer would sketch out the logic first.
+
+**How it works:** An option in `SqlChatOptions` that appends a reasoning instruction to the system prompt, asking the model to think through the join strategy, filter conditions, and aggregation before emitting SQL. The response is parsed to extract just the SQL portion.
+
+**Proposed API:**
+```csharp
+services.AddSqlChat()
+    .UseAnthropic(opts =>
+    {
+        opts.AnthropicApiKey      = "...";
+        opts.EnableChainOfThought = true;  // default: false
+    });
+```
+
+**Trade-off:** More tokens and slightly higher latency per query, but measurably better accuracy on multi-table or analytically complex questions. Straightforward to implement as a prompt engineering change in `SchemaPromptBuilder` — no architectural changes needed.
+
+---
+
+### Schema Data Samples
+
+**Problem it solves:** Columns with non-obvious values (coded statuses, internal IDs, date formats) are hard for the LLM to filter or join on correctly without seeing real examples. Including a few representative rows per table in the prompt closes that gap.
+
+**How it works:** An optional enrichment added at schema introspection time — `PostgresSchemaProvider` queries `SELECT * FROM table LIMIT n` for each table and attaches the results to `TableDescriptor`. The prompt builder renders them as a compact grid.
+
+**Proposed API:**
+```csharp
+services.AddSqlChat()
+    .UsePostgresConnectionString("...", includeSampleRows: 3);
+```
+
+**Trade-off:** Larger prompts (proportional to number of tables × sample rows × columns) and a small extra DB round-trip at startup. High value for schemas with coded or non-intuitive data.

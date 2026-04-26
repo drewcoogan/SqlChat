@@ -38,6 +38,19 @@ internal static class SchemaPromptBuilder
             }
         }
 
+        if (schema.ExampleQueries is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Example Queries");
+            sb.AppendLine("Use these as a reference for how questions should be answered:");
+            foreach (var example in schema.ExampleQueries)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Question: {example.Description}");
+                sb.AppendLine($"SQL: {example.Sql}");
+            }
+        }
+
         return sb.ToString();
     }
 

@@ -6,6 +6,7 @@ public sealed class SchemaEnrichmentBuilder
 {
     private readonly List<string> _excludedTables = [];
     private readonly Dictionary<string, TableEnrichmentBuilder> _tables = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ExampleQuery> _examples = [];
 
     public SchemaEnrichmentBuilder ExcludeTable(string name)
     {
@@ -24,12 +25,21 @@ public sealed class SchemaEnrichmentBuilder
         return this;
     }
 
+    public SchemaEnrichmentBuilder AddExample(string description, string sql)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sql);
+        _examples.Add(new ExampleQuery(description, sql));
+        return this;
+    }
+
     public SchemaEnrichment Build() => new()
     {
         ExcludedTables = [.. _excludedTables],
         Tables = _tables.ToDictionary(
             kvp => kvp.Key,
             kvp => kvp.Value.Build(),
-            StringComparer.OrdinalIgnoreCase)
+            StringComparer.OrdinalIgnoreCase),
+        Examples = [.. _examples]
     };
 }

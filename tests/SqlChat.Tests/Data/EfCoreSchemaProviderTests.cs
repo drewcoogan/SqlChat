@@ -9,7 +9,7 @@ public sealed class EfCoreSchemaProviderTests
     {
         public int Id { get; set; }
         public string Name { get; set; } = "";
-        public List<Post> Posts { get; set; } = new();
+        public List<Post> Posts { get; set; } = [];
     }
 
     private sealed class Post

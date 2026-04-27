@@ -1,5 +1,3 @@
-using System.Dynamic;
-
 namespace SqlChat.Tests.Integration;
 
 /// <summary>
@@ -20,7 +18,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // -------------------------------------------------------------------------
 
     private static IReadOnlyList<IDictionary<string, object>> Rows(IEnumerable<dynamic> data) =>
-        data.Cast<ExpandoObject>().Select(e => (IDictionary<string, object>)(object)e).ToList();
+        data.Cast<IDictionary<string, object>>().ToList();
 
     private static object? Field(IDictionary<string, object> row, string column) =>
         row.TryGetValue(column, out var v) ? v : null;

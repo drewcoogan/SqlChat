@@ -11,18 +11,16 @@ internal static class IntegrationConfig
     }
 
     public static bool IsEnabled =>
-        string.Equals(Environment.GetEnvironmentVariable("SQLCHAT_RUN_INTEGRATION_TESTS"), "true", StringComparison.OrdinalIgnoreCase);
+        bool.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_RUN_INTEGRATION_TESTS"), out var v) && v;
 
     public static string ConnectionString =>
         Environment.GetEnvironmentVariable("SQLCHAT_CONNECTION_STRING")
-            ?? throw new InvalidOperationException(
-                "SQLCHAT_CONNECTION_STRING is not set. Check tests/SqlChat.Tests/.env.");
+            ?? throw new InvalidOperationException("SQLCHAT_CONNECTION_STRING is not set. Check tests/SqlChat.Tests/.env.");
 
     public static string? AnthropicApiKey =>
         Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
 
-    public static string AnthropicModel =>
-        Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-opus-4-7";
+    public static string AnthropicModel => "claude-haiku-4-5-20251001";
 
     public static int QueryRetryMax =>
         int.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_QUERY_RETRY_MAX"), out var v) ? v : 3;

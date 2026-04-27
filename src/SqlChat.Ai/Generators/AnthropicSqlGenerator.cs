@@ -32,8 +32,12 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
         {
             Model = _options.AnthropicModel,
             MaxTokens = _options.MaxOutputTokens,
-            SystemMessage = systemPrompt,
             Temperature = 0,
+            PromptCaching = PromptCacheType.FineGrained,
+            System =
+            [
+                new SystemMessage(systemPrompt, new CacheControl { Type = CacheControlType.ephemeral })
+            ],
             Messages =
             [
                 new Message
@@ -42,7 +46,7 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
                     Content = [new TextContent { Text = naturalLanguage }]
                 }
             ]
-        }, null, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
 
         if (response.FirstMessage?.Text is { } text && !string.IsNullOrWhiteSpace(text))

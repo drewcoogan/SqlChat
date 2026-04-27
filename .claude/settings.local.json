@@ -14,7 +14,14 @@
       "Bash(dotnet test *)",
       "Bash(dotnet add *)",
       "Bash(dotnet fsi *)",
-      "Read(//Users/andrewcoogan/.nuget/packages/**)"
+      "Read(//Users/andrewcoogan/.nuget/packages/**)",
+      "Bash(SQLCHAT_RUN_INTEGRATION_TESTS=true dotnet test tests/SqlChat.Tests/ --filter \"FullyQualifiedName~PostgresConnectionTests\")",
+      "Bash(dotnet-ildasm ~/.nuget/packages/anthropic.sdk/3.3.0/lib/net8.0/Anthropic.SDK.dll)",
+      "Bash(dotnet package *)",
+      "Bash(nuget list *)",
+      "Bash(curl -s \"https://api.nuget.org/v3-flatcontainer/anthropic.sdk/index.json\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(v\\) for v in d['versions'] if v.startswith\\('3.'\\) or v.startswith\\('4.'\\) or v.startswith\\('5.'\\)]\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(v\\) for v in d['versions'] if v.startswith\\('3.'\\)]\")"
     ]
   }
 }

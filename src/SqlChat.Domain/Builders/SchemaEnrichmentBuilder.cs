@@ -1,3 +1,4 @@
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Domain.Builders;
@@ -18,10 +19,9 @@ public sealed class SchemaEnrichmentBuilder
     public SchemaEnrichmentBuilder Table(string name, Action<TableEnrichmentBuilder> configure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(configure);
         if (!_tables.TryGetValue(name, out var builder))
             _tables[name] = builder = new TableEnrichmentBuilder();
-        configure(builder);
+        configure.Validate()(builder);
         return this;
     }
 

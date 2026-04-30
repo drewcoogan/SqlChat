@@ -3,36 +3,33 @@ using Polly;
 using Polly.Retry;
 using SqlChat.Data.Internal;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Options;
 
 namespace SqlChat.Data.Execution;
 
-public sealed class PostgresQueryExecutor : IQueryExecutor
+public sealed class PostgresQueryExecutor(SqlChatOptions options) : IQueryExecutor
 {
-    private readonly string _connectionString;
-    private readonly ResiliencePipeline _pipeline;
-
-    public PostgresQueryExecutor(SqlChatOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.ConnectionString, nameof(options.ConnectionString));
-
-        _connectionString = options.ConnectionString;
-        _pipeline = BuildPipeline(options.QueryRetryMax);
-    }
+    private readonly string _connectionString = options
+        .Validate(nameof(options))
+        .ConnectionString
+        .Validate(nameof(options.ConnectionString), v => v.IsNotEmpty())!;
+    private readonly ResiliencePipeline _pipeline = BuildPipeline(options.QueryRetryMax);
 
     public async Task<IEnumerable<T>> QueryAsync<T>(string sql, CancellationToken cancellationToken = default)
     {
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return await connection.QueryWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var res = await connection.QueryWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return res;
     }
 
     public async Task<T?> QuerySingleAsync<T>(string sql, CancellationToken cancellationToken = default)
     {
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return await connection.QuerySingleOrDefaultWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var res = await connection.QuerySingleOrDefaultWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return res;
     }
 
     private static ResiliencePipeline BuildPipeline(int maxRetryAttempts) =>

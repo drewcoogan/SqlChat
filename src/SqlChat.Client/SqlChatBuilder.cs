@@ -4,6 +4,7 @@ using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Options;
 using SqlChat.Domain.Providers;
@@ -33,8 +34,7 @@ public sealed class SqlChatBuilder
 
     public SqlChatBuilder UseEntityFramework(DbContext context)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        var cs = context.Database.GetConnectionString()
+        var cs = context.Validate(nameof(context)).Database.GetConnectionString()
             ?? throw new InvalidOperationException("DbContext has no connection string configured.");
         _schemaProvider = new PostgresSchemaProvider(cs);
         return this;
@@ -42,35 +42,33 @@ public sealed class SqlChatBuilder
 
     public SqlChatBuilder UseSchema(SchemaCatalog catalog)
     {
-        ArgumentNullException.ThrowIfNull(catalog);
-        _schemaProvider = new ManualSchemaProvider(catalog);
+        _schemaProvider = new ManualSchemaProvider(catalog.Validate(nameof(catalog)));
         return this;
     }
 
     public SqlChatBuilder UseSchemaProvider(ISchemaProvider provider)
     {
-        _schemaProvider = provider ?? throw new ArgumentNullException(nameof(provider));
+        _schemaProvider = provider.Validate(nameof(provider));
         return this;
     }
 
     public SqlChatBuilder UseGenerator(ISqlGenerator generator)
     {
-        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
+        _generator = generator.Validate(nameof(generator));
         return this;
     }
 
     public SqlChatBuilder UseSqlSecurity(ISqlSecurityValidator validator)
     {
-        _sqlSecurityValidator = validator ?? throw new ArgumentNullException(nameof(validator));
+        _sqlSecurityValidator = validator.Validate(nameof(validator));
         _sqlSecurityOptions = null;
         return this;
     }
 
     public SqlChatBuilder UseSqlSecurity(SqlSecurityOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
         _sqlSecurityValidator = null;
-        _sqlSecurityOptions = options;
+        _sqlSecurityOptions = options.Validate(nameof(options));
         return this;
     }
 
@@ -91,16 +89,14 @@ public sealed class SqlChatBuilder
 
     public SqlChatBuilder Enrich(SchemaEnrichment enrichment)
     {
-        _enrichment = enrichment ?? throw new ArgumentNullException(nameof(enrichment));
+        _enrichment = enrichment.Validate(nameof(enrichment));
         return this;
     }
 
     public SqlChatBuilder EnrichFromFile(string path)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var json = File.ReadAllText(path);
-        _enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        var json = File.ReadAllText(path.Validate(nameof(path), x => x.IsNotEmpty()));
+        _enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json, options: GetJsonSerializerOptions())
             ?? throw new InvalidOperationException($"Failed to deserialize enrichment file: {path}");
         return this;
     }
@@ -123,4 +119,9 @@ public sealed class SqlChatBuilder
         var engine = new TextToSqlEngine(schemaProvider, _generator, sqlSecurity);
         return new SqlChatClient(engine, _executor, _llmFixRetryMax);
     }
+
+    private static JsonSerializerOptions GetJsonSerializerOptions() => new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 }

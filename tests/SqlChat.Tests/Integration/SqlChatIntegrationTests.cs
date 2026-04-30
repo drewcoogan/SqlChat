@@ -17,8 +17,8 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static IReadOnlyList<IDictionary<string, object>> Rows(IEnumerable<dynamic> data) =>
-        data.Cast<IDictionary<string, object>>().ToList();
+    private static List<IDictionary<string, object>> Rows(IEnumerable<dynamic> data) =>
+        [.. data.Cast<IDictionary<string, object>>()];
 
     private static object? Field(IDictionary<string, object> row, string column) =>
         row.TryGetValue(column, out var v) ? v : null;

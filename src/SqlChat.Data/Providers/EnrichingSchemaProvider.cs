@@ -1,18 +1,13 @@
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Data.Providers;
 
-public sealed class EnrichingSchemaProvider : ISchemaProvider
+public sealed class EnrichingSchemaProvider(ISchemaProvider inner, SchemaEnrichment enrichment) : ISchemaProvider
 {
-    private readonly ISchemaProvider _inner;
-    private readonly SchemaEnrichment _enrichment;
-
-    public EnrichingSchemaProvider(ISchemaProvider inner, SchemaEnrichment enrichment)
-    {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _enrichment = enrichment ?? throw new ArgumentNullException(nameof(enrichment));
-    }
+    private readonly ISchemaProvider _inner = inner.Validate(nameof(inner));
+    private readonly SchemaEnrichment _enrichment = enrichment.Validate(nameof(enrichment));
 
     public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default)
     {
@@ -30,7 +25,7 @@ public sealed class EnrichingSchemaProvider : ISchemaProvider
             .ToList();
 
         var examples = _enrichment.Examples.Count > 0
-            ? (IReadOnlyList<ExampleQuery>)_enrichment.Examples
+            ? _enrichment.Examples
             : catalog.ExampleQueries;
 
         return catalog with { Tables = tables, ExampleQueries = examples };
@@ -45,13 +40,12 @@ public sealed class EnrichingSchemaProvider : ISchemaProvider
 
         var columns = table.Columns
             .Where(c => !excludedCols.Contains(c.Name))
-            .Select(c => ApplyColumn(c, tableEnrich))
-            .ToList();
+            .Select(c => ApplyColumn(c, tableEnrich));
 
-        return table with
+        return table with // returns a copy of this record, but with the following values updated, very cool
         {
             Description = tableEnrich.Description ?? table.Description,
-            Columns = columns
+            Columns = [.. columns]
         };
     }
 
@@ -60,7 +54,7 @@ public sealed class EnrichingSchemaProvider : ISchemaProvider
         if (!tableEnrich.Columns.TryGetValue(column.Name, out var colEnrich))
             return column;
 
-        var tags = colEnrich.SemanticTags is { Count: > 0 }
+        var tags = colEnrich.SemanticTags is { Count: > 0 } // this is slick af
             ? [.. colEnrich.SemanticTags]
             : column.SemanticTags;
 

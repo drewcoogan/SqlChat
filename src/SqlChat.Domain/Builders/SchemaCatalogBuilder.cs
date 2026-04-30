@@ -1,5 +1,6 @@
 namespace SqlChat.Domain.Builders;
 
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 /// <summary>
@@ -7,15 +8,14 @@ using SqlChat.Domain.Models;
 /// </summary>
 public sealed class SchemaCatalogBuilder
 {
-    private readonly List<TableDescriptor> _tables = new();
+    private readonly List<TableDescriptor> _tables = [];
 
     public SchemaCatalogBuilder AddTable(string name, Action<TableDescriptorBuilder> configure, string? schema = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(configure);
 
         var table = new TableDescriptorBuilder(name, schema);
-        configure(table);
+        configure.Validate()(table);
         _tables.Add(table.Build());
         return this;
     }
@@ -23,33 +23,19 @@ public sealed class SchemaCatalogBuilder
     public SchemaCatalog Build() => new(_tables);
 }
 
-public sealed class TableDescriptorBuilder
+public sealed class TableDescriptorBuilder(string name, string? schema)
 {
-    private readonly string _name;
-    private readonly string? _schema;
-    private readonly List<ColumnDescriptor> _columns = new();
+    private readonly string _name = name;
+    private readonly string? _schema = schema;
+    private readonly List<ColumnDescriptor> _columns = [];
 
-    internal TableDescriptorBuilder(string name, string? schema)
-    {
-        _name = name;
-        _schema = schema;
-    }
-
-    public TableDescriptorBuilder AddColumn(
-        string name,
-        string storeType,
-        string? description = null,
-        bool nullable = true,
-        bool primaryKey = false,
-        ForeignKeyReference? foreignKey = null,
+    public TableDescriptorBuilder AddColumn(string name, string storeType,
+        string? description = null, bool nullable = true, bool primaryKey = false, ForeignKeyReference? foreignKey = null,
         params string[] semanticTags)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentException.ThrowIfNullOrWhiteSpace(storeType);
-
         _columns.Add(ColumnDescriptor.Create(
-            name,
-            storeType,
+            name.Validate(x => x.IsNotEmpty()),
+            storeType.Validate(x => x.IsNotEmpty()),
             description,
             nullable,
             primaryKey,

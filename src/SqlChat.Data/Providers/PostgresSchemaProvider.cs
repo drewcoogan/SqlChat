@@ -6,10 +6,8 @@ namespace SqlChat.Data.Providers;
 /// <summary>
 /// Introspects a PostgreSQL database schema via information_schema.
 /// </summary>
-public sealed class PostgresSchemaProvider : RelationalSchemaProvider
+public sealed class PostgresSchemaProvider(string connectionString) : RelationalSchemaProvider(connectionString)
 {
-    public PostgresSchemaProvider(string connectionString) : base(connectionString) { }
-
     protected override IDbConnection CreateConnection(string connectionString) =>
         new NpgsqlConnection(connectionString);
 

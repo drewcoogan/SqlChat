@@ -4,11 +4,10 @@ namespace SqlChat.Tests.Integration;
 
 internal static class IntegrationConfig
 {
-    static IntegrationConfig()
-    {
-        Env.Load(Path.Combine(AppContext.BaseDirectory, ".env"),
-            new LoadOptions(setEnvVars: true, clobberExistingVars: false, onlyExactPath: true));
-    }
+    private static readonly LoadOptions _envLoadOptions = new(setEnvVars: true, clobberExistingVars: false, onlyExactPath: true);
+
+    static IntegrationConfig() =>
+        Env.Load(Path.Combine(AppContext.BaseDirectory, ".env"), _envLoadOptions);
 
     public static bool IsEnabled =>
         bool.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_RUN_INTEGRATION_TESTS"), out var v) && v;

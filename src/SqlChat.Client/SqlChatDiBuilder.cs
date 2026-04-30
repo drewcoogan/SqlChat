@@ -22,7 +22,7 @@ public sealed class SqlChatDiBuilder
         Services = services;
         services.AddSingleton<ISqlSecurityValidator, SqlSecurityValidator>();
         services.AddScoped<TextToSqlEngine>();
-        services.AddScoped<SqlChatClient>(sp => new SqlChatClient(
+        services.AddScoped(sp => new SqlChatClient(
             sp.GetRequiredService<TextToSqlEngine>(),
             sp.GetService<IQueryExecutor>(),
             sp.GetService<SqlChatOptions>()?.LlmFixRetryMax ?? 2));
@@ -30,7 +30,7 @@ public sealed class SqlChatDiBuilder
 
     public SqlChatDiBuilder UseEntityFramework<TContext>() where TContext : DbContext
     {
-        Services.AddScoped<PostgresSchemaProvider>(sp =>
+        Services.AddScoped(sp =>
         {
             var context = sp.GetRequiredService<TContext>();
             var cs = context.Database.GetConnectionString()

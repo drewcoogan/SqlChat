@@ -15,12 +15,8 @@ public static class DapperRetryExtensions
         })
         .Build();
 
-    public static async Task<IEnumerable<T>> QueryWithRetryAsync<T>(
-        this IDbConnection connection,
-        string sql,
-        object? param = null,
-        ResiliencePipeline? pipeline = null,
-        CancellationToken cancellationToken = default)
+    public static async Task<IEnumerable<T>> QueryWithRetryAsync<T>(this IDbConnection connection, string sql,
+        object? param = null, ResiliencePipeline? pipeline = null, CancellationToken cancellationToken = default)
     {
         var p = pipeline ?? DefaultPipeline;
         return await p.ExecuteAsync(
@@ -28,12 +24,8 @@ public static class DapperRetryExtensions
             cancellationToken).ConfigureAwait(false);
     }
 
-    public static async Task<T?> QuerySingleOrDefaultWithRetryAsync<T>(
-        this IDbConnection connection,
-        string sql,
-        object? param = null,
-        ResiliencePipeline? pipeline = null,
-        CancellationToken cancellationToken = default)
+    public static async Task<T?> QuerySingleOrDefaultWithRetryAsync<T>(this IDbConnection connection, string sql,
+        object? param = null, ResiliencePipeline? pipeline = null, CancellationToken cancellationToken = default)
     {
         var p = pipeline ?? DefaultPipeline;
         return await p.ExecuteAsync(

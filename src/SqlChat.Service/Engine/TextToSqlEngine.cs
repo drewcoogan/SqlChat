@@ -5,21 +5,11 @@ using SqlChat.Service.Security;
 
 namespace SqlChat.Service.Engine;
 
-public sealed class TextToSqlEngine
+public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerator generator, ISqlSecurityValidator? sqlSecurityValidator = null)
 {
-    private readonly ISchemaProvider _schemaProvider;
-    private readonly ISqlSecurityValidator _sqlSecurity;
-    private readonly ISqlGenerator _generator;
-
-    public TextToSqlEngine(
-        ISchemaProvider schemaProvider,
-        ISqlGenerator generator,
-        ISqlSecurityValidator? sqlSecurityValidator = null)
-    {
-        _schemaProvider = schemaProvider ?? throw new ArgumentNullException(nameof(schemaProvider));
-        _generator = generator ?? throw new ArgumentNullException(nameof(generator));
-        _sqlSecurity = sqlSecurityValidator ?? new SqlSecurityValidator();
-    }
+    private readonly ISchemaProvider _schemaProvider = schemaProvider ?? throw new ArgumentNullException(nameof(schemaProvider));
+    private readonly ISqlSecurityValidator _sqlSecurity = sqlSecurityValidator ?? new SqlSecurityValidator();
+    private readonly ISqlGenerator _generator = generator ?? throw new ArgumentNullException(nameof(generator));
 
     public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default) =>
         await _schemaProvider.GetSchemaAsync(cancellationToken).ConfigureAwait(false);

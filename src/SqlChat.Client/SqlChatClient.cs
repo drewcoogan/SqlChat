@@ -18,9 +18,7 @@ public sealed class SqlChatClient
         _llmFixRetryMax = llmFixRetryMax;
     }
 
-    public async Task<SqlChatCollectionResult<T>> QueryAsync<T>(
-        string naturalLanguage,
-        CancellationToken cancellationToken = default)
+    public async Task<SqlChatCollectionResult<T>> QueryAsync<T>(string naturalLanguage, CancellationToken cancellationToken = default)
     {
         if (_executor is null)
             return SqlChatCollectionResult<T>.Fail(
@@ -39,13 +37,10 @@ public sealed class SqlChatClient
         }
     }
 
-    public async Task<SqlChatResult<T>> QuerySingleAsync<T>(
-        string naturalLanguage,
-        CancellationToken cancellationToken = default)
+    public async Task<SqlChatResult<T>> QuerySingleAsync<T>(string naturalLanguage, CancellationToken cancellationToken = default)
     {
         if (_executor is null)
-            return SqlChatResult<T>.Fail(
-                "No query executor configured. Provide a connection string to enable query execution.");
+            return SqlChatResult<T>.Fail("No query executor configured. Provide a connection string to enable query execution.");
 
         try
         {

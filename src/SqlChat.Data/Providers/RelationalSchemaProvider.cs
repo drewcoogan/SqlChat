@@ -1,6 +1,7 @@
 using System.Data;
 using SqlChat.Data.Internal;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Data.Providers;
@@ -8,15 +9,9 @@ namespace SqlChat.Data.Providers;
 /// <summary>
 /// Base schema provider for relational databases via INFORMATION_SCHEMA.
 /// </summary>
-public abstract class RelationalSchemaProvider : ISchemaProvider
+public abstract class RelationalSchemaProvider(string connectionString) : ISchemaProvider
 {
-    private readonly string _connectionString;
-
-    protected RelationalSchemaProvider(string connectionString)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-        _connectionString = connectionString;
-    }
+    private readonly string _connectionString = connectionString.Validate(nameof(connectionString), v => v.IsNotEmpty());
 
     public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default)
     {
@@ -35,14 +30,13 @@ public abstract class RelationalSchemaProvider : ISchemaProvider
     protected abstract string ColumnsQuery { get; }
     protected abstract string PrimaryKeysQuery { get; }
 
-    private static SchemaCatalog BuildCatalog(
-        IEnumerable<TableRow> tableRows,
-        IEnumerable<ColumnRow> columnRows,
-        IEnumerable<PrimaryKeyRow> pkRows)
+    private static SchemaCatalog BuildCatalog(IEnumerable<TableRow> tableRows, IEnumerable<ColumnRow> columnRows, IEnumerable<PrimaryKeyRow> pkRows)
     {
         var pkSet = pkRows
             .ToHashSet(EqualityComparer<PrimaryKeyRow>.Create(
-                (a, b) => a?.SchemaName == b?.SchemaName && a?.TableName == b?.TableName && a?.ColumnName == b?.ColumnName,
+                (a, b) => a?.SchemaName == b?.SchemaName
+                    && a?.TableName == b?.TableName
+                    && a?.ColumnName == b?.ColumnName,
                 r => HashCode.Combine(r?.SchemaName, r?.TableName, r?.ColumnName)));
 
         var columnsByTable = columnRows
@@ -57,11 +51,14 @@ public abstract class RelationalSchemaProvider : ISchemaProvider
 
             var columns = cols.Select(col =>
             {
-                var isPk = pkRows.Any(pk => pk.SchemaName == col.SchemaName && pk.TableName == col.TableName && pk.ColumnName == col.ColumnName);
+                var isPk = pkRows.Any(pk =>
+                    pk.SchemaName == col.SchemaName
+                    && pk.TableName == col.TableName
+                    && pk.ColumnName == col.ColumnName);
                 return ColumnDescriptor.Create(col.ColumnName, col.DataType, isNullable: col.IsNullable, isPrimaryKey: isPk);
-            }).ToList();
+            });
 
-            tables.Add(new TableDescriptor(t.TableName, t.SchemaName, columns));
+            tables.Add(new TableDescriptor(t.TableName, t.SchemaName, [.. columns]));
         }
 
         return new SchemaCatalog(tables);

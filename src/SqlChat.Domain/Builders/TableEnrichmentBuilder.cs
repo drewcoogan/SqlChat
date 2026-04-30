@@ -1,3 +1,4 @@
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Domain.Builders;
@@ -10,8 +11,7 @@ public sealed class TableEnrichmentBuilder
 
     public TableEnrichmentBuilder Description(string description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        _description = description;
+        _description = description.Validate();
         return this;
     }
 
@@ -24,7 +24,6 @@ public sealed class TableEnrichmentBuilder
 
     public TableEnrichmentBuilder Column(string name, string description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         GetOrAddColumn(name).Description(description);
         return this;
@@ -32,14 +31,13 @@ public sealed class TableEnrichmentBuilder
 
     public TableEnrichmentBuilder Column(string name, Action<ColumnEnrichmentBuilder> configure)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(configure);
-        configure(GetOrAddColumn(name));
+        configure.Validate()(GetOrAddColumn(name));
         return this;
     }
 
     private ColumnEnrichmentBuilder GetOrAddColumn(string name)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (!_columns.TryGetValue(name, out var builder))
             _columns[name] = builder = new ColumnEnrichmentBuilder();
         return builder;

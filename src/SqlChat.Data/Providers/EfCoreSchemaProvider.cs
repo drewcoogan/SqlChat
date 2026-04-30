@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Data.Providers;
@@ -9,15 +10,9 @@ namespace SqlChat.Data.Providers;
 /// <summary>
 /// Builds a <see cref="SchemaCatalog"/> from an EF Core <see cref="IModel"/> (for example <c>dbContext.Model</c>).
 /// </summary>
-public sealed class EfCoreSchemaProvider : ISchemaProvider
+public sealed class EfCoreSchemaProvider(IModel model) : ISchemaProvider
 {
-    private readonly SchemaCatalog _catalog;
-
-    public EfCoreSchemaProvider(IModel model)
-    {
-        ArgumentNullException.ThrowIfNull(model);
-        _catalog = BuildCatalog(model);
-    }
+    private readonly SchemaCatalog _catalog = BuildCatalog(model.Validate(nameof(model)));
 
     public Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(_catalog);
@@ -41,7 +36,7 @@ public sealed class EfCoreSchemaProvider : ISchemaProvider
                 foreach (var property in Entity.GetProperties())
                 {
                     var columnName = property.GetColumnName();
-                    
+
                     if (columnName is null || columns.ContainsKey(columnName))
                         continue;
 

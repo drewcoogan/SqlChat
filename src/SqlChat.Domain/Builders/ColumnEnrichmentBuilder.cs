@@ -1,4 +1,3 @@
-using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Domain.Builders;
@@ -10,13 +9,15 @@ public sealed class ColumnEnrichmentBuilder
 
     public ColumnEnrichmentBuilder Description(string description)
     {
-        _description = description.Validate(x => x.IsNotEmpty());
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        _description = description;
         return this;
     }
 
     public ColumnEnrichmentBuilder Tag(string tag)
     {
-        _tags.Add(tag.Validate(x => x.IsNotEmpty()));
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        _tags.Add(tag);
         return this;
     }
 

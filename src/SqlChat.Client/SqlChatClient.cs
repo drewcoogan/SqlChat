@@ -1,24 +1,18 @@
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Results;
 using SqlChat.Service.Engine;
 
 namespace SqlChat.Client;
 
-public sealed class SqlChatClient
+public sealed class SqlChatClient(TextToSqlEngine engine, IQueryExecutor? executor = null, int llmFixRetryMax = 2)
 {
-    private readonly TextToSqlEngine _engine;
-    private readonly IQueryExecutor? _executor;
-    private readonly int _llmFixRetryMax;
+    private readonly TextToSqlEngine _engine = engine.Validate();
+    private readonly IQueryExecutor? _executor = executor;
+    private readonly int _llmFixRetryMax = llmFixRetryMax;
 
-    internal SqlChatClient(TextToSqlEngine engine, IQueryExecutor? executor = null, int llmFixRetryMax = 2)
-    {
-        _engine = engine ?? throw new ArgumentNullException(nameof(engine));
-        _executor = executor;
-        _llmFixRetryMax = llmFixRetryMax;
-    }
-
-    public async Task<SqlChatCollectionResult<T>> QueryAsync<T>(string naturalLanguage, CancellationToken cancellationToken = default)
+    public async Task<SqlChatCollectionResult<T>> QueryAsync<T>(string naturalLanguage, CancellationToken ct = default)
     {
         if (_executor is null)
             return SqlChatCollectionResult<T>.Fail(
@@ -27,7 +21,7 @@ public sealed class SqlChatClient
         try
         {
             var (data, sql) = await _engine
-                .GenerateAndExecuteManyAsync<T>(naturalLanguage, _executor, _llmFixRetryMax, cancellationToken)
+                .GenerateAndExecuteManyAsync<T>(naturalLanguage, _executor, _llmFixRetryMax, ct)
                 .ConfigureAwait(false);
             return SqlChatCollectionResult<T>.Success(data, sql);
         }
@@ -37,7 +31,7 @@ public sealed class SqlChatClient
         }
     }
 
-    public async Task<SqlChatResult<T>> QuerySingleAsync<T>(string naturalLanguage, CancellationToken cancellationToken = default)
+    public async Task<SqlChatResult<T>> QuerySingleAsync<T>(string naturalLanguage, CancellationToken ct = default)
     {
         if (_executor is null)
             return SqlChatResult<T>.Fail("No query executor configured. Provide a connection string to enable query execution.");
@@ -45,7 +39,7 @@ public sealed class SqlChatClient
         try
         {
             var (data, sql) = await _engine
-                .GenerateAndExecuteSingleAsync<T>(naturalLanguage, _executor, _llmFixRetryMax, cancellationToken)
+                .GenerateAndExecuteSingleAsync<T>(naturalLanguage, _executor, _llmFixRetryMax, ct)
                 .ConfigureAwait(false);
             return SqlChatResult<T>.Success(data, sql);
         }
@@ -55,8 +49,8 @@ public sealed class SqlChatClient
         }
     }
 
-    public Task<string> GenerateSqlAsync(string naturalLanguage, CancellationToken cancellationToken = default) =>
-        _engine.GenerateSqlAsync(naturalLanguage, cancellationToken);
+    public Task<string> GenerateSqlAsync(string naturalLanguage, CancellationToken ct = default) =>
+        _engine.GenerateSqlAsync(naturalLanguage, ct);
 
     public SqlValidationResult ValidateGeneratedSql(string sql) =>
         _engine.ValidateGeneratedSql(sql);

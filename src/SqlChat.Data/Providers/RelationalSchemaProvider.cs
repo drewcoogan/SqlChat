@@ -11,16 +11,16 @@ namespace SqlChat.Data.Providers;
 /// </summary>
 public abstract class RelationalSchemaProvider(string connectionString) : ISchemaProvider
 {
-    private readonly string _connectionString = connectionString.Validate(nameof(connectionString), v => v.IsNotEmpty());
+    private readonly string _connectionString = connectionString.Validate(v => v.IsNotEmpty());
 
-    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default)
+    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default)
     {
         using var connection = CreateConnection(_connectionString);
         connection.Open();
 
-        var tableRows = await connection.QueryWithRetryAsync<TableRow>(TablesQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var columnRows = await connection.QueryWithRetryAsync<ColumnRow>(ColumnsQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var pkRows = await connection.QueryWithRetryAsync<PrimaryKeyRow>(PrimaryKeysQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var tableRows = await connection.QueryWithRetryAsync<TableRow>(TablesQuery, ct: ct).ConfigureAwait(false);
+        var columnRows = await connection.QueryWithRetryAsync<ColumnRow>(ColumnsQuery, ct: ct).ConfigureAwait(false);
+        var pkRows = await connection.QueryWithRetryAsync<PrimaryKeyRow>(PrimaryKeysQuery, ct: ct).ConfigureAwait(false);
 
         return BuildCatalog(tableRows, columnRows, pkRows);
     }

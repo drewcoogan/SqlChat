@@ -3,14 +3,9 @@ using SqlChat.Domain.Models;
 
 namespace SqlChat.Service.Security;
 
-public sealed class SqlSecurityValidator : ISqlSecurityValidator
+public sealed class SqlSecurityValidator(SqlSecurityOptions? options = null) : ISqlSecurityValidator
 {
-    private readonly SqlSecurityOptions _options;
-
-    public SqlSecurityValidator(SqlSecurityOptions? options = null)
-    {
-        _options = options ?? new SqlSecurityOptions();
-    }
+    private readonly SqlSecurityOptions _options = options ?? new SqlSecurityOptions();
 
     public SqlValidationResult ValidateGeneratedSql(string sql)
     {

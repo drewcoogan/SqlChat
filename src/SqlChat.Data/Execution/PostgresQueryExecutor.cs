@@ -13,14 +13,14 @@ public sealed class PostgresQueryExecutor(SqlChatOptions options) : IQueryExecut
     private readonly string _connectionString = options
         .Validate(nameof(options))
         .ConnectionString
-        .Validate(nameof(options.ConnectionString), v => v.IsNotEmpty())!;
+        .Validate(v => v.IsNotEmpty())!;
     private readonly ResiliencePipeline _pipeline = BuildPipeline(options.QueryRetryMax);
 
     public async Task<IEnumerable<T>> QueryAsync<T>(string sql, CancellationToken cancellationToken = default)
     {
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var res = await connection.QueryWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var res = await connection.QueryWithRetryAsync<T>(sql, pipeline: _pipeline, ct: cancellationToken).ConfigureAwait(false);
         return res;
     }
 
@@ -28,7 +28,7 @@ public sealed class PostgresQueryExecutor(SqlChatOptions options) : IQueryExecut
     {
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var res = await connection.QuerySingleOrDefaultWithRetryAsync<T>(sql, pipeline: _pipeline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var res = await connection.QuerySingleOrDefaultWithRetryAsync<T>(sql, pipeline: _pipeline, ct: cancellationToken).ConfigureAwait(false);
         return res;
     }
 

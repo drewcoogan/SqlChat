@@ -1,5 +1,6 @@
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Exceptions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Service.Security;
 
@@ -7,12 +8,12 @@ namespace SqlChat.Service.Engine;
 
 public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerator generator, ISqlSecurityValidator? sqlSecurityValidator = null)
 {
-    private readonly ISchemaProvider _schemaProvider = schemaProvider ?? throw new ArgumentNullException(nameof(schemaProvider));
+    private readonly ISchemaProvider _schemaProvider = schemaProvider.Validate();
+    private readonly ISqlGenerator _generator = generator.Validate();
     private readonly ISqlSecurityValidator _sqlSecurity = sqlSecurityValidator ?? new SqlSecurityValidator();
-    private readonly ISqlGenerator _generator = generator ?? throw new ArgumentNullException(nameof(generator));
 
-    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default) =>
-        await _schemaProvider.GetSchemaAsync(cancellationToken).ConfigureAwait(false);
+    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default) =>
+        await _schemaProvider.GetSchemaAsync(ct).ConfigureAwait(false);
 
     public SqlValidationResult ValidateGeneratedSql(string sql) =>
         _sqlSecurity.ValidateGeneratedSql(sql);
@@ -26,12 +27,11 @@ public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerato
         throw new SqlSecurityException(result.RejectionReason ?? "Generated SQL failed security validation.");
     }
 
-    public async Task<string> GenerateSqlAsync(string naturalLanguage, CancellationToken cancellationToken = default)
+    public async Task<string> GenerateSqlAsync(string naturalLanguage, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(naturalLanguage);
-
-        var schema = await GetSchemaAsync(cancellationToken).ConfigureAwait(false);
-        var sql = await _generator.GenerateAsync(naturalLanguage, schema, cancellationToken).ConfigureAwait(false);
+        var schema = await GetSchemaAsync(ct).ConfigureAwait(false);
+        var sql = await _generator.GenerateAsync(naturalLanguage, schema, ct).ConfigureAwait(false);
         ValidateGeneratedSqlOrThrow(sql);
         return sql;
     }
@@ -40,36 +40,24 @@ public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerato
         string naturalLanguage,
         IQueryExecutor executor,
         int llmFixRetryMax,
-        CancellationToken cancellationToken = default)
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(naturalLanguage);
-        ArgumentNullException.ThrowIfNull(executor);
-
-        var schema = await GetSchemaAsync(cancellationToken).ConfigureAwait(false);
-        return await RunWithLlmRetryAsync(
-            naturalLanguage,
-            schema,
-            (sql, ct) => executor.QueryAsync<T>(sql, ct),
-            llmFixRetryMax,
-            cancellationToken).ConfigureAwait(false);
+        executor.Validate();
+        var schema = await GetSchemaAsync(ct).ConfigureAwait(false);
+        return await RunWithLlmRetryAsync(naturalLanguage, schema, executor.QueryAsync<T>, llmFixRetryMax, ct).ConfigureAwait(false);
     }
 
     public async Task<(T? Data, string Sql)> GenerateAndExecuteSingleAsync<T>(
         string naturalLanguage,
         IQueryExecutor executor,
         int llmFixRetryMax,
-        CancellationToken cancellationToken = default)
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(naturalLanguage);
-        ArgumentNullException.ThrowIfNull(executor);
-
-        var schema = await GetSchemaAsync(cancellationToken).ConfigureAwait(false);
-        return await RunWithLlmRetryAsync(
-            naturalLanguage,
-            schema,
-            executor.QuerySingleAsync<T>,
-            llmFixRetryMax,
-            cancellationToken).ConfigureAwait(false);
+        executor.Validate();
+        var schema = await GetSchemaAsync(ct).ConfigureAwait(false);
+        return await RunWithLlmRetryAsync(naturalLanguage, schema, executor.QuerySingleAsync<T>, llmFixRetryMax, ct).ConfigureAwait(false);
     }
 
     private async Task<(TResult result, string sql)> RunWithLlmRetryAsync<TResult>(
@@ -103,8 +91,7 @@ public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerato
             }
         }
 
-        throw new InvalidOperationException(
-            $"SQL execution failed after {llmFixRetryMax + 1} attempt(s).", lastException);
+        throw new InvalidOperationException($"SQL execution failed after {llmFixRetryMax + 1} attempt(s).", lastException);
     }
 
     private static string BuildRetryPrompt(string originalQuestion, string failedSql, string error) =>

@@ -1,6 +1,7 @@
 namespace SqlChat.Domain.Providers;
 
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 
 /// <summary>
@@ -8,7 +9,7 @@ using SqlChat.Domain.Models;
 /// </summary>
 public sealed class ManualSchemaProvider(SchemaCatalog catalog) : ISchemaProvider
 {
-    private readonly SchemaCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    private readonly SchemaCatalog _catalog = catalog.Validate();
 
     public Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(_catalog);

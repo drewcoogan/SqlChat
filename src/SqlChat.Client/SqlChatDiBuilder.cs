@@ -6,6 +6,7 @@ using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Options;
 using SqlChat.Service.Engine;
@@ -54,15 +55,13 @@ public sealed class SqlChatDiBuilder
 
     public SqlChatDiBuilder UseGenerator(ISqlGenerator generator)
     {
-        ArgumentNullException.ThrowIfNull(generator);
-        Services.AddSingleton(generator);
+        Services.AddSingleton(generator.Validate());
         return this;
     }
 
     public SqlChatDiBuilder UseSqlSecurity(SqlSecurityOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        Services.AddSingleton(options);
+        Services.AddSingleton(options.Validate());
         Services.AddSingleton<ISqlSecurityValidator>(sp =>
             new SqlSecurityValidator(sp.GetRequiredService<SqlSecurityOptions>()));
         return this;
@@ -78,16 +77,14 @@ public sealed class SqlChatDiBuilder
 
     public SqlChatDiBuilder Enrich(Action<SchemaEnrichmentBuilder> configure)
     {
-        ArgumentNullException.ThrowIfNull(configure);
         var builder = new SchemaEnrichmentBuilder();
-        configure(builder);
+        configure.Validate()(builder);
         return Enrich(builder.Build());
     }
 
     public SqlChatDiBuilder Enrich(SchemaEnrichment enrichment)
     {
-        ArgumentNullException.ThrowIfNull(enrichment);
-        Services.AddSingleton(enrichment);
+        Services.AddSingleton(enrichment.Validate());
         Services.RemoveAll<ISchemaProvider>();
         Services.AddSingleton<ISchemaProvider>(sp =>
             new EnrichingSchemaProvider(
@@ -100,9 +97,11 @@ public sealed class SqlChatDiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var json = File.ReadAllText(path);
-        var enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        var enrichment = JsonSerializer.Deserialize<SchemaEnrichment>(json, GetJsonSerializerOptions())
             ?? throw new InvalidOperationException($"Failed to deserialize enrichment file: {path}");
         return Enrich(enrichment);
     }
+
+    private static JsonSerializerOptions GetJsonSerializerOptions() => new() { PropertyNameCaseInsensitive = true };
+
 }

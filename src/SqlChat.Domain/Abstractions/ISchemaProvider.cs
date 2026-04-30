@@ -7,6 +7,6 @@ using SqlChat.Domain.Models;
 /// </summary>
 public interface ISchemaProvider
 {
-    Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default);
+    Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default);
 }
 

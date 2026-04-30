@@ -6,12 +6,12 @@ namespace SqlChat.Data.Providers;
 
 public sealed class EnrichingSchemaProvider(ISchemaProvider inner, SchemaEnrichment enrichment) : ISchemaProvider
 {
-    private readonly ISchemaProvider _inner = inner.Validate(nameof(inner));
-    private readonly SchemaEnrichment _enrichment = enrichment.Validate(nameof(enrichment));
+    private readonly ISchemaProvider _inner = inner.Validate();
+    private readonly SchemaEnrichment _enrichment = enrichment.Validate();
 
-    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default)
+    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default)
     {
-        var catalog = await _inner.GetSchemaAsync(cancellationToken).ConfigureAwait(false);
+        var catalog = await _inner.GetSchemaAsync(ct).ConfigureAwait(false);
         return Apply(catalog);
     }
 

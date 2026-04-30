@@ -2,6 +2,7 @@ using Anthropic.SDK;
 using Anthropic.SDK.Messaging;
 using SqlChat.Ai.Prompts;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Options;
 
@@ -15,16 +16,16 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
 
     public AnthropicSqlGenerator(SqlChatOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.AnthropicApiKey, nameof(options.AnthropicApiKey));
-        _options = options;
+        _options = options.Validate();
 
         var httpHandler = new HttpClientHandler(); // TODO: we can add parameters here for proxies into options if we want
         _httpClient = new HttpClient(httpHandler);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.AnthropicApiKey, nameof(options.AnthropicApiKey));
         _client = new AnthropicClient(new APIAuthentication(options.AnthropicApiKey), _httpClient);
     }
 
-    public async Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken cancellationToken = default)
+    public async Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken ct = default)
     {
         var systemPrompt = SchemaPromptBuilder.BuildSystemPrompt(schema, _options.Dialect);
 
@@ -46,10 +47,10 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
                     Content = [new TextContent { Text = naturalLanguage }]
                 }
             ]
-        }, cancellationToken).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
 
 
-        if (response.FirstMessage?.Text is { } text && !string.IsNullOrWhiteSpace(text))
+        if (response.FirstMessage?.Text is { } text && text.IsNotEmpty())
             return SchemaPromptBuilder.ExtractSql(text);
 
         throw new InvalidOperationException("Anthropic returned no text content.");

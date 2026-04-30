@@ -30,8 +30,7 @@ public sealed class AnthropicConnectionTests
             ]
         }, CancellationToken.None).ConfigureAwait(false);
 
-        Console.WriteLine(JsonConvert.SerializeObject(response));
-
+        //Console.WriteLine(JsonConvert.SerializeObject(response));
         Assert.NotNull(response.StopReason);
     }
 }

@@ -12,9 +12,9 @@ namespace SqlChat.Data.Providers;
 /// </summary>
 public sealed class EfCoreSchemaProvider(IModel model) : ISchemaProvider
 {
-    private readonly SchemaCatalog _catalog = BuildCatalog(model.Validate(nameof(model)));
+    private readonly SchemaCatalog _catalog = BuildCatalog(model.Validate());
 
-    public Task<SchemaCatalog> GetSchemaAsync(CancellationToken cancellationToken = default) =>
+    public Task<SchemaCatalog> GetSchemaAsync(CancellationToken _ = default) =>
         Task.FromResult(_catalog);
 
     private static SchemaCatalog BuildCatalog(IModel model)

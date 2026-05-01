@@ -6,7 +6,7 @@ using SqlChat.Service.Security;
 
 namespace SqlChat.Service.Engine;
 
-public sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerator generator, ISqlSecurityValidator? sqlSecurityValidator = null)
+internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenerator generator, ISqlSecurityValidator? sqlSecurityValidator = null)
 {
     private readonly ISchemaProvider _schemaProvider = schemaProvider.Validate();
     private readonly ISqlGenerator _generator = generator.Validate();

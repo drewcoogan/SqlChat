@@ -80,10 +80,19 @@ class SqlChatCollectionResult<T> : SqlChatResult
 ### DI registration
 
 ```csharp
-// Primary: connection string
+// PostgreSQL
 services.AddSqlChat()
     .UsePostgresConnectionString("Host=...;Database=...")
     .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
+
+// SQL Server
+services.AddSqlChat()
+    .UseSqlServerConnectionString("Server=...;Database=...")
+    .UseAnthropic(opts =>
+    {
+        opts.AnthropicApiKey = "sk-ant-...";
+        opts.Dialect = SqlDialect.SqlServer;
+    });
 
 // EF convenience — extracts connection string from DbContext only
 services.AddSqlChat()
@@ -153,7 +162,6 @@ A caller drops SqlChat into an existing ASP.NET Core app, points it at their Pos
 
 ## Non-Goals
 
-- SQL Server support is not a current priority (Postgres is the target dialect)
 - Streaming SQL generation is not planned
 - Multi-LLM support (Azure OpenAI, etc.) is deferred until Anthropic integration is solid
 

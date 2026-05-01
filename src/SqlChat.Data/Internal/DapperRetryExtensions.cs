@@ -4,7 +4,7 @@ using Polly;
 
 namespace SqlChat.Data.Internal;
 
-public static class DapperRetryExtensions
+internal static class DapperRetryExtensions
 {
     private static readonly ResiliencePipeline DefaultPipeline = new ResiliencePipelineBuilder()
         .AddRetry(new Polly.Retry.RetryStrategyOptions

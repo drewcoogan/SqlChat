@@ -16,7 +16,7 @@ foreach (Order order in result.Data) { ... }
 ## Requirements
 
 - .NET 10
-- PostgreSQL database
+- PostgreSQL **or** SQL Server database
 - An [Anthropic API key](https://console.anthropic.com/)
 
 ---
@@ -53,6 +53,18 @@ public class ReportService(SqlChatClient sqlChat)
             Console.WriteLine(order);
     }
 }
+```
+
+### Primary: SQL Server
+
+```csharp
+services.AddSqlChat()
+    .UseSqlServerConnectionString("Server=localhost,1433;Database=mydb;User Id=sa;Password=...;TrustServerCertificate=true")
+    .UseAnthropic(opts =>
+    {
+        opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"];
+        opts.Dialect = SqlDialect.SqlServer;
+    });
 ```
 
 ### Convenience: EF Core
@@ -214,25 +226,39 @@ Integration tests are skipped automatically unless explicitly enabled.
 
 ### Integration tests
 
-Integration tests run against a live PostgreSQL database and call the Anthropic API. Copy the example env file and fill in your values:
+Integration tests run against live databases and call the Anthropic API. Copy the example env file and fill in your values:
 
 ```bash
 cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
 ```
 
-Then run:
+Then set `SQLCHAT_RUN_INTEGRATION_TESTS=true` in `.env` and run:
 
 ```bash
-dotnet test SqlChat.sln -e SQLCHAT_RUN_INTEGRATION_TESTS=true
+dotnet test SqlChat.sln
 ```
 
-Required variables in `.env`:
+**PostgreSQL variables:**
 
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `SQLCHAT_CONNECTION_STRING` | Postgres connection string (database must exist) |
+| `SQLCHAT_CONNECTION_STRING` | Postgres connection string |
 | `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
+
+**SQL Server variables** (optional — SQL Server tests are skipped if absent):
+
+| Variable | Description |
+|---|---|
+| `SQLCHAT_SQLSERVER_CONNECTION_STRING` | SQL Server connection string |
+
+A `docker-compose.yml` at the repo root defines both SQL Server and Postgres. Start the full test environment with:
+
+```bash
+docker compose up -d
+```
+
+The SQL Server 2022 image supports Apple Silicon natively. The test fixture creates and tears down the test database automatically.
 
 ---
 

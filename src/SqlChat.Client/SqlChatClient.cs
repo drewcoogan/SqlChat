@@ -6,11 +6,18 @@ using SqlChat.Service.Engine;
 
 namespace SqlChat.Client;
 
-public sealed class SqlChatClient(TextToSqlEngine engine, IQueryExecutor? executor = null, int llmFixRetryMax = 2)
+public sealed class SqlChatClient : ISqlChatClient
 {
-    private readonly TextToSqlEngine _engine = engine.Validate();
-    private readonly IQueryExecutor? _executor = executor;
-    private readonly int _llmFixRetryMax = llmFixRetryMax;
+    private readonly TextToSqlEngine _engine;
+    private readonly IQueryExecutor? _executor;
+    private readonly int _llmFixRetryMax;
+
+    internal SqlChatClient(TextToSqlEngine engine, IQueryExecutor? executor = null, int llmFixRetryMax = 2)
+    {
+        _engine = engine.Validate();
+        _executor = executor;
+        _llmFixRetryMax = llmFixRetryMax;
+    }
 
     public async Task<SqlChatCollectionResult<T>> QueryAsync<T>(string naturalLanguage, CancellationToken ct = default)
     {

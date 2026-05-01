@@ -2,4 +2,13 @@
   <ItemGroup>
     <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SqlChat.Client</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>SqlChat.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

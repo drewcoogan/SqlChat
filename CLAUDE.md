@@ -29,7 +29,7 @@ SqlChat converts natural language questions into executed, read-only SQL results
 
 ```
 SqlChat.Domain   → Core abstractions (no infrastructure deps)
-SqlChat.Data     → Schema extraction (PostgreSQL via Dapper; EF convenience shim)
+SqlChat.Data     → Schema extraction (PostgreSQL + SQL Server via Dapper; EF convenience shim)
 SqlChat.Service  → Orchestration, SQL security validation
 SqlChat.Ai       → Anthropic LLM-backed SQL generation
 SqlChat.Client   → Public API facade + DI registration
@@ -56,9 +56,12 @@ SqlChat never throws to the caller — all outcomes are expressed via `IsFailed`
 ### Pluggable Extension Points
 
 **Schema Providers** (`ISchemaProvider`):
-- `PostgresSchemaProvider` — **primary path**; introspects a live Postgres DB via `INFORMATION_SCHEMA` using a connection string
+- `PostgresSchemaProvider` — introspects a live Postgres DB via `INFORMATION_SCHEMA`
+- `SqlServerSchemaProvider` — introspects a live SQL Server DB via `INFORMATION_SCHEMA` (T-SQL dialect)
 - `ManualSchemaProvider` — wraps a pre-built `SchemaCatalog`; used in unit tests
 - `EfCoreSchemaProvider` — legacy; walks an EF Core `IModel`. Being replaced: the EF convenience path now only extracts the connection string from the `DbContext` and delegates to `PostgresSchemaProvider`
+
+Both relational providers extend `RelationalSchemaProvider` (abstract base) — add new DB support by subclassing it and supplying the three `INFORMATION_SCHEMA` queries.
 
 **SQL Generators** (`ISqlGenerator`):
 - `AnthropicSqlGenerator` — the only generator; requires an API key
@@ -81,11 +84,24 @@ Located in `SqlChat.Domain/Models/`:
 
 ### Public API
 
-**Primary DI path — connection string:**
+Consumers program against `ISqlChatClient` — the interface exposes `QueryAsync<T>`, `QuerySingleAsync<T>`, `GenerateSqlAsync`, `ValidateGeneratedSql`, and `ValidateGeneratedSqlOrThrow`. `SqlChatClient` (the concrete class) has an `internal` constructor; always resolve it via DI or `SqlChatBuilder.Build()`.
+
+**DI path — PostgreSQL:**
 ```csharp
 services.AddSqlChat()
     .UsePostgresConnectionString("Host=...;Database=...")
     .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
+```
+
+**DI path — SQL Server:**
+```csharp
+services.AddSqlChat()
+    .UseSqlServerConnectionString("Server=...;Database=...")
+    .UseAnthropic(opts =>
+    {
+        opts.AnthropicApiKey = "sk-ant-...";
+        opts.Dialect = SqlDialect.SqlServer;
+    });
 ```
 
 **EF Core convenience — connection string extraction only:**
@@ -194,6 +210,8 @@ The table below tracks what exists today vs what needs to be built.
 | Feature | Status | Notes |
 |---|---|---|
 | `PostgresSchemaProvider` — DB introspection | ✅ Done | Primary schema source |
+| `SqlServerSchemaProvider` / `SqlServerQueryExecutor` | ✅ Done | Full SQL Server support via `Microsoft.Data.SqlClient`; `UseSqlServerConnectionString` on both builders |
+| `ISqlChatClient` — public client interface | ✅ Done | `SqlChatClient` implements it; registered in DI; constructor is `internal` |
 | `AnthropicSqlGenerator` — LLM SQL generation | ✅ Done | Uses `Anthropic.SDK` v3.3.0 |
 | `SqlSecurityValidator` — heuristic read-only enforcement | ✅ Done | Blocks all non-SELECT |
 | `SchemaCatalogBuilder` — manual schema construction | ✅ Done | Used in tests; basis for enrichment layer |
@@ -201,12 +219,12 @@ The table below tracks what exists today vs what needs to be built.
 | `SqlChatResult` / `SqlChatResult<T>` / `SqlChatCollectionResult<T>` | ✅ Done | Result types with `IsSuccess`/`IsFailed`/`Error` |
 | `IQueryExecutor` / `PostgresQueryExecutor` — Dapper + Polly execution | ✅ Done | Retries transient `NpgsqlException` via Polly |
 | LLM fix-and-retry loop (`LlmFixRetryMax`) | ✅ Done | In `TextToSqlEngine.RunWithLlmRetryAsync` |
-| `.Enrich()` / `.EnrichFromFile()` API | ✅ Done | `SchemaEnrichmentBuilder`, `EnrichingSchemaProvider` decorator |
+| `.Enrich()` / `.EnrichFromFile()` API | ✅ Done | `SchemaEnrichmentBuilder`, `EnrichingSchemaProvider` decorator; works with both Postgres and SQL Server |
 | `ExcludeTable` / `ExcludeColumn` / column descriptions | ✅ Done | Applied by `EnrichingSchemaProvider` at schema fetch time |
 | EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
+| `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `DapperRetryExtensions` are `internal`; `SqlChatClient` constructor is `internal`; `InternalsVisibleTo` grants `SqlChat.Client` and `SqlChat.Tests` access |
 | `EfCoreSchemaProvider` — EF model walking | ⚠️ Legacy | Still exists; not used by primary paths; pending removal |
 | `AddSqlChat(opts => { ConnectionString, ... })` | 🔲 Planned | Unified DI init with single options object |
-| `internal` access modifier + `InternalsVisibleTo` | 🔲 Planned | All classes currently `public` |
 
 **When implementing**: work top-to-bottom through the planned items. Each item that touches the public API surface should be reviewed against `docs/VISION.md` before coding.
 
@@ -268,15 +286,34 @@ cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
 # edit .env — set ANTHROPIC_API_KEY, SQLCHAT_CONNECTION_STRING, and SQLCHAT_RUN_INTEGRATION_TESTS=true
 ```
 
-Alternatively, export variables in your shell:
+`ANTHROPIC_API_KEY` is read at construction time by `AnthropicSqlGenerator` via `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it. See `.env.example` for all available variables and their defaults.
+
+**Important:** `IntegrationConfig` loads `.env` with `clobberExistingVars: true` — the file always wins over whatever is set in the shell. This prevents stale shell exports (e.g. an empty `ANTHROPIC_API_KEY`) from silently breaking tests.
+
+### Docker — Local Dev Databases
+
+A `docker-compose.yml` at the repo root defines both databases. Start everything with:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export SQLCHAT_CONNECTION_STRING="Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=..."
-export SQLCHAT_RUN_INTEGRATION_TESTS=true
+docker compose up -d       # start SQL Server + Postgres in the background
+docker compose down        # stop and remove containers
+docker compose logs -f     # stream logs from all containers
 ```
 
-`ANTHROPIC_API_KEY` is read at construction time by `AnthropicSqlGenerator` via `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it. See `.env.example` for all available variables and their defaults.
+Both services include health checks — containers report `healthy` once the DB is accepting connections. The 2022 SQL Server image supports Apple Silicon natively.
+
+Once running, add to your `.env`:
+
+```
+SQLCHAT_SQLSERVER_CONNECTION_STRING=Server=localhost,1433;Database=sqlchat_test;User Id=sa;Password=SqlChat_Strong@Pass1;TrustServerCertificate=true;
+```
+
+For Postgres via Docker (instead of a local install), use:
+```
+SQLCHAT_CONNECTION_STRING=Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=postgres;SSL Mode=Disable
+```
+
+The `SqlServerDatabaseFixture` creates and tears down the `sqlchat_test` database automatically on each test run.
 
 ### Running an End-to-End Smoke Test
 
@@ -287,6 +324,21 @@ var client = new SqlChatBuilder()
     .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
     {
         AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    }))
+    .Build();
+
+SqlChatCollectionResult<dynamic> result = await client.QueryAsync<dynamic>("show me all users");
+Console.WriteLine(result.Sql);
+```
+
+**Against a live SQL Server DB:**
+```csharp
+var client = new SqlChatBuilder()
+    .UseSqlServerConnectionString("Server=localhost,1433;Database=mydb;User Id=sa;Password=...;TrustServerCertificate=true")
+    .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
+    {
+        AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY"),
+        Dialect = SqlDialect.SqlServer
     }))
     .Build();
 
@@ -314,22 +366,22 @@ string sql = await client.GenerateSqlAsync("find all users");
 Console.WriteLine(sql);
 ```
 
-### Postgres Introspection (optional)
+### Database Introspection
 
-`PostgresSchemaProvider` needs a live connection. Use `SqlChatBuilder.UsePostgresConnectionString(cs)` or the DI equivalent. No migrations needed — it reads `INFORMATION_SCHEMA` directly.
+Both `PostgresSchemaProvider` and `SqlServerSchemaProvider` need a live connection. Use `SqlChatBuilder.UseConnectionString(cs)` / `UseSqlServerConnectionString(cs)` or the DI equivalents. No migrations needed — both providers read `INFORMATION_SCHEMA` directly.
 
 ### Project Dependency Graph
 
 ```
 SqlChat.Domain      (no deps)
     ↑
-SqlChat.Service     (Domain only)
+SqlChat.Service     (Domain only) [InternalsVisibleTo: SqlChat.Client, SqlChat.Tests]
     ↑
-SqlChat.Data        (Domain + EF Core + Dapper + Npgsql + Polly)
+SqlChat.Data        (Domain + EF Core + Dapper + Npgsql + Microsoft.Data.SqlClient + Polly)
     ↑
 SqlChat.Client      (Domain + Data + Service + EF Core + DI Abstractions)
     ↑
-SqlChat.Ai          (Domain + Client + Anthropic.SDK + DI Abstractions)
+SqlChat.Ai          (Domain + Client + Anthropic.SDK + DI Abstractions) [InternalsVisibleTo: SqlChat.Tests]
 
 SqlChat.Tests       (Ai + Client + Data + xUnit + EF InMemory + DotNetEnv)
 ```
@@ -388,11 +440,17 @@ The Azure OpenAI properties in `SqlChatAiOptions` are stubs. Don't add partial i
 | `src/SqlChat.Domain/Abstractions/` | `ISchemaProvider`, `ISqlGenerator`, `ISqlSecurityValidator` |
 | `src/SqlChat.Domain/Models/` | Immutable domain records |
 | `src/SqlChat.Domain/Builders/SchemaCatalogBuilder.cs` | Fluent schema construction (used in tests) |
-| `src/SqlChat.Data/Providers/EfCoreSchemaProvider.cs` | EF Core `IModel` → `SchemaCatalog` |
+| `src/SqlChat.Data/Providers/RelationalSchemaProvider.cs` | Abstract base for INFORMATION_SCHEMA providers |
 | `src/SqlChat.Data/Providers/PostgresSchemaProvider.cs` | Live Postgres introspection |
-| `src/SqlChat.Service/Engine/TextToSqlEngine.cs` | Main orchestrator |
-| `src/SqlChat.Service/Security/SqlHeuristicValidation.cs` | Security heuristics |
+| `src/SqlChat.Data/Providers/SqlServerSchemaProvider.cs` | Live SQL Server introspection (T-SQL) |
+| `src/SqlChat.Data/Execution/PostgresQueryExecutor.cs` | Postgres query execution via Dapper + Polly |
+| `src/SqlChat.Data/Execution/SqlServerQueryExecutor.cs` | SQL Server query execution via Dapper + Polly |
+| `src/SqlChat.Data/Providers/EfCoreSchemaProvider.cs` | EF Core `IModel` → `SchemaCatalog` (legacy) |
+| `src/SqlChat.Service/Engine/TextToSqlEngine.cs` | Main orchestrator (internal) |
+| `src/SqlChat.Service/Security/SqlHeuristicValidation.cs` | Security heuristics (internal) |
 | `src/SqlChat.Ai/Generators/AnthropicSqlGenerator.cs` | LLM SQL generation |
-| `src/SqlChat.Ai/Prompts/SchemaPromptBuilder.cs` | Schema → system prompt + SQL extraction |
+| `src/SqlChat.Ai/Prompts/SchemaPromptBuilder.cs` | Schema → system prompt + SQL extraction (internal) |
+| `src/SqlChat.Client/ISqlChatClient.cs` | Public client interface |
+| `src/SqlChat.Client/SqlChatClient.cs` | Implements `ISqlChatClient`; internal constructor |
 | `src/SqlChat.Client/SqlChatBuilder.cs` | Non-DI public API |
 | `src/SqlChat.Client/SqlChatDiBuilder.cs` | DI public API |

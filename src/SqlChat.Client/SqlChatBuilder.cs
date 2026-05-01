@@ -32,6 +32,15 @@ public sealed class SqlChatBuilder
         return this;
     }
 
+    public SqlChatBuilder UseSqlServerConnectionString(string connectionString, int queryRetryMax = 3)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        var options = new SqlChatOptions { ConnectionString = connectionString, QueryRetryMax = queryRetryMax, Dialect = SqlDialect.SqlServer };
+        _schemaProvider = new SqlServerSchemaProvider(connectionString);
+        _executor = new SqlServerQueryExecutor(options);
+        return this;
+    }
+
     public SqlChatBuilder UseEntityFramework(DbContext context)
     {
         var cs = context.Validate().Database.GetConnectionString()

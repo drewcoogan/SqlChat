@@ -4,7 +4,7 @@ namespace SqlChat.Tests.Integration;
 
 internal static class IntegrationConfig
 {
-    private static readonly LoadOptions _envLoadOptions = new(setEnvVars: true, clobberExistingVars: false, onlyExactPath: true);
+    private static readonly LoadOptions _envLoadOptions = new(setEnvVars: true, clobberExistingVars: true, onlyExactPath: true);
 
     static IntegrationConfig() =>
         Env.Load(Path.Combine(AppContext.BaseDirectory, ".env"), _envLoadOptions);
@@ -26,4 +26,11 @@ internal static class IntegrationConfig
 
     public static int LlmFixRetryMax =>
         int.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_LLM_FIX_RETRY_MAX"), out var v) ? v : 2;
+
+    public static bool IsSqlServerEnabled =>
+        IsEnabled && Environment.GetEnvironmentVariable("SQLCHAT_SQLSERVER_CONNECTION_STRING") is not null;
+
+    public static string SqlServerConnectionString =>
+        Environment.GetEnvironmentVariable("SQLCHAT_SQLSERVER_CONNECTION_STRING")
+            ?? throw new InvalidOperationException("SQLCHAT_SQLSERVER_CONNECTION_STRING is not set. Check tests/SqlChat.Tests/.env.");
 }

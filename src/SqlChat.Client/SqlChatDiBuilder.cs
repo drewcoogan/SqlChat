@@ -16,6 +16,8 @@ namespace SqlChat.Client;
 
 public sealed class SqlChatDiBuilder
 {
+    private Type? _concreteSchemaProviderType;
+
     public IServiceCollection Services { get; }
 
     internal SqlChatDiBuilder(IServiceCollection services)
@@ -27,6 +29,7 @@ public sealed class SqlChatDiBuilder
             sp.GetRequiredService<TextToSqlEngine>(),
             sp.GetService<IQueryExecutor>(),
             sp.GetService<SqlChatOptions>()?.LlmFixRetryMax ?? 2));
+        services.AddScoped<ISqlChatClient>(sp => sp.GetRequiredService<SqlChatClient>());
     }
 
     public SqlChatDiBuilder UseEntityFramework<TContext>() where TContext : DbContext
@@ -50,6 +53,19 @@ public sealed class SqlChatDiBuilder
         Services.AddSingleton<IQueryExecutor>(sp =>
             new PostgresQueryExecutor(
                 sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString }));
+        _concreteSchemaProviderType = typeof(PostgresSchemaProvider);
+        return this;
+    }
+
+    public SqlChatDiBuilder UseSqlServerConnectionString(string connectionString)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        Services.AddSingleton(new SqlServerSchemaProvider(connectionString));
+        Services.AddSingleton<ISchemaProvider>(sp => sp.GetRequiredService<SqlServerSchemaProvider>());
+        Services.AddSingleton<IQueryExecutor>(sp =>
+            new SqlServerQueryExecutor(
+                sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString, Dialect = SqlDialect.SqlServer }));
+        _concreteSchemaProviderType = typeof(SqlServerSchemaProvider);
         return this;
     }
 
@@ -84,11 +100,16 @@ public sealed class SqlChatDiBuilder
 
     public SqlChatDiBuilder Enrich(SchemaEnrichment enrichment)
     {
+        if (_concreteSchemaProviderType is null)
+            throw new InvalidOperationException(
+                "Call UsePostgresConnectionString or UseSqlServerConnectionString before Enrich.");
+
         Services.AddSingleton(enrichment.Validate());
         Services.RemoveAll<ISchemaProvider>();
+        var providerType = _concreteSchemaProviderType;
         Services.AddSingleton<ISchemaProvider>(sp =>
             new EnrichingSchemaProvider(
-                sp.GetRequiredService<PostgresSchemaProvider>(),
+                (ISchemaProvider)sp.GetRequiredService(providerType),
                 sp.GetRequiredService<SchemaEnrichment>()));
         return this;
     }

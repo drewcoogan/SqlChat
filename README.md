@@ -17,7 +17,7 @@ foreach (Order order in result.Data) { ... }
 
 - .NET 10
 - PostgreSQL **or** SQL Server database
-- An [Anthropic API key](https://console.anthropic.com/)
+- An [Anthropic API key](https://console.anthropic.com/) **or** an [OpenAI API key](https://platform.openai.com/)
 
 ---
 
@@ -77,14 +77,45 @@ services.AddSqlChat()
     .UseAnthropic(opts => opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"]);
 ```
 
+### Primary: OpenAI
+
+```csharp
+services.AddSqlChat()
+    .UsePostgresConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
+    .UseOpenAi(opts => opts.ApiKey = builder.Configuration["OpenAI:ApiKey"]);
+```
+
+For SQL Server:
+
+```csharp
+services.AddSqlChat()
+    .UseSqlServerConnectionString("Server=localhost,1433;Database=mydb;User Id=sa;Password=...;TrustServerCertificate=true")
+    .UseOpenAi(opts =>
+    {
+        opts.ApiKey  = builder.Configuration["OpenAI:ApiKey"];
+        opts.Model   = "gpt-4o";                 // default is gpt-4o-mini
+        opts.Dialect = SqlDialect.SqlServer;
+    });
+```
+
 ### Without DI
 
 ```csharp
+// Anthropic
 var client = new SqlChatBuilder()
     .UseConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
     .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
     {
         AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    }))
+    .Build();
+
+// OpenAI
+var client = new SqlChatBuilder()
+    .UseConnectionString("Host=localhost;Database=mydb;Username=...;Password=...")
+    .UseGenerator(new OpenAiSqlGenerator(new OpenAiSqlGeneratorOptions
+    {
+        ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     }))
     .Build();
 
@@ -187,7 +218,7 @@ SqlChat handles two categories of failure internally:
 | Transient DB errors (timeouts, connection resets) | Retried with exponential backoff via Polly |
 | Bad SQL from the LLM (syntax errors at execution) | DB error fed back to LLM with context; generation retried |
 
-Configure thresholds via `UseAnthropic` options and `WithOptions`:
+Configure thresholds via generator options and `WithOptions`:
 
 ```csharp
 services.AddSqlChat()
@@ -204,13 +235,25 @@ services.AddSqlChat()
 
 ## Configuration
 
+**Anthropic (`SqlChatOptions`):**
+
 | Property | Default | Description |
 |---|---|---|
 | `AnthropicApiKey` | `null` | Falls back to `ANTHROPIC_API_KEY` env var |
 | `AnthropicModel` | `"claude-opus-4-7"` | Model used for SQL generation |
 | `MaxOutputTokens` | `2048` | Max tokens in the generated SQL response |
+| `Dialect` | `PostgreSql` | SQL dialect for prompt and schema formatting |
 | `QueryRetryMax` | `3` | Max retries for transient DB errors |
 | `LlmFixRetryMax` | `2` | Max LLM retry loops for bad SQL |
+
+**OpenAI (`OpenAiSqlGeneratorOptions`):**
+
+| Property | Default | Description |
+|---|---|---|
+| `ApiKey` | `null` | Your OpenAI API key |
+| `Model` | `"gpt-4o-mini"` | Model used for SQL generation |
+| `MaxOutputTokens` | `2048` | Max tokens in the generated SQL response |
+| `Dialect` | `PostgreSql` | SQL dialect for prompt and schema formatting |
 
 ---
 
@@ -226,7 +269,7 @@ Integration tests are skipped automatically unless explicitly enabled.
 
 ### Integration tests
 
-Integration tests run against live databases and call the Anthropic API. Copy the example env file and fill in your values:
+Integration tests run against live databases and call the LLM APIs. Copy the example env file and fill in your values:
 
 ```bash
 cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
@@ -243,6 +286,7 @@ dotnet test SqlChat.sln
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `OPENAI_API_KEY` | Your OpenAI API key |
 | `SQLCHAT_CONNECTION_STRING` | Postgres connection string |
 | `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
 
@@ -268,6 +312,6 @@ The SQL Server 2022 image supports Apple Silicon natively. The test fixture crea
 SqlChat.Domain   → Core abstractions and domain models (no infrastructure deps)
 SqlChat.Data     → Schema introspection and query execution (PostgreSQL via Dapper + Polly)
 SqlChat.Service  → Orchestration, LLM retry loop, and SQL security validation
-SqlChat.Ai       → Anthropic LLM-backed SQL generation
+SqlChat.Ai       → LLM SQL generation (Anthropic + OpenAI)
 SqlChat.Client   → Public API facade and DI registration
 ```

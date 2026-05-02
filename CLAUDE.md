@@ -31,7 +31,7 @@ SqlChat converts natural language questions into executed, read-only SQL results
 SqlChat.Domain   → Core abstractions (no infrastructure deps)
 SqlChat.Data     → Schema extraction (PostgreSQL + SQL Server via Dapper; EF convenience shim)
 SqlChat.Service  → Orchestration, SQL security validation
-SqlChat.Ai       → Anthropic LLM-backed SQL generation
+SqlChat.Ai       → LLM SQL generation (Anthropic + OpenAI)
 SqlChat.Client   → Public API facade + DI registration
 SqlChat.Tests    → xUnit tests, uses EF Core InMemory for schema tests
 ```
@@ -64,14 +64,15 @@ SqlChat never throws to the caller — all outcomes are expressed via `IsFailed`
 Both relational providers extend `RelationalSchemaProvider` (abstract base) — add new DB support by subclassing it and supplying the three `INFORMATION_SCHEMA` queries.
 
 **SQL Generators** (`ISqlGenerator`):
-- `AnthropicSqlGenerator` — the only generator; requires an API key
+- `AnthropicSqlGenerator` — uses Anthropic Claude; configured via `SqlChatOptions`
+- `OpenAiSqlGenerator` — uses OpenAI ChatGPT; configured via `OpenAiSqlGeneratorOptions`
 
 **Security Validator** (`ISqlSecurityValidator`):
 - `SqlSecurityValidator` — heuristic-only (no AST); blocks DML/DDL, `SELECT INTO`, enforces `SELECT`/`WITH` prefix
 
 ### Generator is Required
 
-`ISqlGenerator` is a required parameter on `TextToSqlEngine` and `SqlChatBuilder.Build()` — there is no default fallback. Always call `.UseGenerator(...)` or `.UseAnthropic(...)`.
+`ISqlGenerator` is a required parameter on `TextToSqlEngine` and `SqlChatBuilder.Build()` — there is no default fallback. Always call `.UseGenerator(...)`, `.UseAnthropic(...)`, or `.UseOpenAi(...)`.
 
 ### Domain Models (immutable records)
 
@@ -80,7 +81,7 @@ Located in `SqlChat.Domain/Models/`:
 - `TableDescriptor(Name, Schema?, Columns, Description?)` — one table/view
 - `ColumnDescriptor(Name, StoreType, Description?, IsNullable, IsPrimaryKey, ForeignKey?, SemanticTags)` — one column
 
-`Description` on both `TableDescriptor` and `ColumnDescriptor` is the primary hook for LLM context. It is fed directly into the Anthropic system prompt by `SchemaPromptBuilder`. `SemanticTags` on columns are `IReadOnlySet<string>` (case-insensitive).
+`Description` on both `TableDescriptor` and `ColumnDescriptor` is the primary hook for LLM context. It is fed into the system prompt by `SchemaPromptBuilder`, which is shared across all generators. `SemanticTags` on columns are `IReadOnlySet<string>` (case-insensitive).
 
 ### Public API
 
@@ -152,36 +153,56 @@ class SqlChatCollectionResult<T> : SqlChatResult { IEnumerable<T> Data; }
 
 ### Anthropic Integration
 
-`AnthropicSqlGenerator` in `SqlChat.Ai` uses `Anthropic.SDK` v3.3.0 (NuGet, by tghamm). Key API shape:
+`AnthropicSqlGenerator` in `SqlChat.Ai` uses `Anthropic.SDK` v5.x. Key API shape:
 
 ```csharp
 // Construction — AnthropicClient(APIAuthentication, HttpClient)
 _client = new AnthropicClient(new APIAuthentication(apiKey), _httpClient);
 
-// Request — GetClaudeMessageAsync(MessageParameters, IList<Tool>?, CancellationToken)
+// Request — GetClaudeMessageAsync(MessageParameters, CancellationToken)
 var response = await _client.Messages.GetClaudeMessageAsync(new MessageParameters
 {
     Model = _options.AnthropicModel,   // string, e.g. "claude-opus-4-7"
     MaxTokens = _options.MaxOutputTokens,
-    SystemMessage = systemPrompt,      // string, not a list
+    System = [new SystemMessage(systemPrompt, new CacheControl { Type = CacheControlType.ephemeral })],
     Messages =
     [
-        new Message
-        {
-            Role = RoleType.User,
-            Content = [new TextContent { Text = naturalLanguage }]  // Content is List<ContentBase>
-        }
+        new Message { Role = RoleType.User, Content = [new TextContent { Text = naturalLanguage }] }
     ]
-}, null, cancellationToken).ConfigureAwait(false);
+}, ct).ConfigureAwait(false);
 
-// Response — FirstMessage is a TextContent helper property
-var text = response.FirstMessage?.Text
-    ?? throw new InvalidOperationException("Anthropic returned no text content.");
+// Response
+var text = response.FirstMessage?.Text;
 ```
 
 `AnthropicClient` implements `IDisposable` — dispose it (and its `HttpClient`) when done.
 
-`SchemaPromptBuilder` formats `SchemaCatalog` into a markdown system prompt and strips markdown code fences from the response. `SqlChatAiOptions` controls: `Dialect` (defaults to `PostgreSql`), `MaxOutputTokens`, `AnthropicApiKey`, `AnthropicModel` (defaults to `"claude-opus-4-7"`).
+`SqlChatOptions` controls: `Dialect` (defaults to `PostgreSql`), `MaxOutputTokens`, `AnthropicApiKey`, `AnthropicModel` (defaults to `"claude-opus-4-7"`).
+
+### OpenAI Integration
+
+`OpenAiSqlGenerator` in `SqlChat.Ai` uses the official `OpenAI` SDK v2.x. Key API shape:
+
+```csharp
+// Construction — OpenAIClient(apiKey)
+_client = new OpenAIClient(_options.ApiKey!);
+
+// Request — ChatClient.CompleteChatAsync(messages, options, ct)
+var chatClient = _client.GetChatClient(_options.Model);
+ClientResult<ChatCompletion> response = await chatClient.CompleteChatAsync(
+    [new SystemChatMessage(systemPrompt), new UserChatMessage(naturalLanguage)],
+    new ChatCompletionOptions { MaxOutputTokenCount = _options.MaxOutputTokens, Temperature = 0f },
+    ct).ConfigureAwait(false);
+
+// Response
+var text = response.Value.Content[0].Text;
+```
+
+`OpenAIClient` does not implement `IDisposable` in v2.x; `OpenAiSqlGenerator.Dispose()` is a no-op but kept so consumers can use `using` blocks consistently.
+
+`OpenAiSqlGeneratorOptions` (in `SqlChat.Ai.Options`) controls: `Dialect` (defaults to `PostgreSql`), `MaxOutputTokens`, `ApiKey`, `Model` (defaults to `"gpt-4o-mini"`).
+
+Both generators call `SchemaPromptBuilder.BuildSystemPrompt` and `SchemaPromptBuilder.ExtractSql` — these are shared and provider-agnostic.
 
 ### EF Core Integration (Connection String Only)
 
@@ -212,7 +233,8 @@ The table below tracks what exists today vs what needs to be built.
 | `PostgresSchemaProvider` — DB introspection | ✅ Done | Primary schema source |
 | `SqlServerSchemaProvider` / `SqlServerQueryExecutor` | ✅ Done | Full SQL Server support via `Microsoft.Data.SqlClient`; `UseSqlServerConnectionString` on both builders |
 | `ISqlChatClient` — public client interface | ✅ Done | `SqlChatClient` implements it; registered in DI; constructor is `internal` |
-| `AnthropicSqlGenerator` — LLM SQL generation | ✅ Done | Uses `Anthropic.SDK` v3.3.0 |
+| `AnthropicSqlGenerator` — LLM SQL generation | ✅ Done | Uses `Anthropic.SDK` v5.x |
+| `OpenAiSqlGenerator` — LLM SQL generation | ✅ Done | Uses `OpenAI` SDK v2.x; `OpenAiSqlGeneratorOptions` in `SqlChat.Ai.Options`; `UseOpenAi()` DI extension |
 | `SqlSecurityValidator` — heuristic read-only enforcement | ✅ Done | Blocks all non-SELECT |
 | `SchemaCatalogBuilder` — manual schema construction | ✅ Done | Used in tests; basis for enrichment layer |
 | `QueryAsync<T>()` / `QuerySingleAsync<T>()` | ✅ Done | Fully wired with LLM retry loop |
@@ -224,7 +246,6 @@ The table below tracks what exists today vs what needs to be built.
 | EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
 | `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `DapperRetryExtensions` are `internal`; `SqlChatClient` constructor is `internal`; `InternalsVisibleTo` grants `SqlChat.Client` and `SqlChat.Tests` access |
 | `EfCoreSchemaProvider` — EF model walking | ⚠️ Legacy | Still exists; not used by primary paths; pending removal |
-| `AddSqlChat(opts => { ConnectionString, ... })` | 🔲 Planned | Unified DI init with single options object |
 
 **When implementing**: work top-to-bottom through the planned items. Each item that touches the public API surface should be reviewed against `docs/VISION.md` before coding.
 
@@ -381,7 +402,7 @@ SqlChat.Data        (Domain + EF Core + Dapper + Npgsql + Microsoft.Data.SqlClie
     ↑
 SqlChat.Client      (Domain + Data + Service + EF Core + DI Abstractions)
     ↑
-SqlChat.Ai          (Domain + Client + Anthropic.SDK + DI Abstractions) [InternalsVisibleTo: SqlChat.Tests]
+SqlChat.Ai          (Domain + Client + Anthropic.SDK + OpenAI SDK + DI Abstractions) [InternalsVisibleTo: SqlChat.Tests]
 
 SqlChat.Tests       (Ai + Client + Data + xUnit + EF InMemory + DotNetEnv)
 ```
@@ -392,8 +413,8 @@ Note: `SqlChat.Ai` references `SqlChat.Client` (not just Domain) because `SqlCha
 
 These are **intentional design choices**, not bugs. Don't "fix" them without a deliberate plan.
 
-### Azure OpenAI — Placeholder Only
-There are no Azure OpenAI generator or options classes. Do not implement it piecemeal — if Azure OpenAI support is added it needs a full implementation (generator + DI extension + options) designed together.
+### Azure OpenAI — Not Implemented
+There is no Azure OpenAI generator or options class. Vanilla OpenAI ChatGPT (`OpenAiSqlGenerator`) is fully implemented. Azure OpenAI is a separate integration (different endpoint, auth model, and deployment-name conventions) — if it is ever added, it needs a full implementation (generator + DI extension + options) designed together, following the same pattern.
 
 ### SemanticTags — Not Wired Up
 `ColumnDescriptor.SemanticTags` (`IReadOnlySet<string>`, case-insensitive) exists on the domain model and can be set via `SchemaCatalogBuilder`, but **no schema provider populates it** and **`SchemaPromptBuilder` does not include it** in the system prompt. The hook is there for future enrichment; don't treat its absence as a bug.
@@ -430,8 +451,8 @@ SqlChat catches all exceptions internally. Transient DB errors go through Polly 
 ### Never Mock in Tests
 Hand-roll fakes that implement the domain interfaces (`ISchemaProvider`, `ISqlGenerator`, `ISqlSecurityValidator`). Do not add Moq, NSubstitute, or any mocking framework. The interfaces are small enough that fakes are 5–10 lines.
 
-### Don't Touch Azure OpenAI Placeholders Incrementally
-The Azure OpenAI properties in `SqlChatAiOptions` are stubs. Don't add partial implementations — either implement it fully (generator + DI + options) or leave it alone.
+### Don't Implement Azure OpenAI Incrementally
+There are no Azure OpenAI stubs to extend. If Azure OpenAI support is ever added, implement it fully in one pass (generator + DI extension + options) — do not layer it onto `OpenAiSqlGenerator` or add partial placeholders.
 
 ### Key Files
 
@@ -448,8 +469,10 @@ The Azure OpenAI properties in `SqlChatAiOptions` are stubs. Don't add partial i
 | `src/SqlChat.Data/Providers/EfCoreSchemaProvider.cs` | EF Core `IModel` → `SchemaCatalog` (legacy) |
 | `src/SqlChat.Service/Engine/TextToSqlEngine.cs` | Main orchestrator (internal) |
 | `src/SqlChat.Service/Security/SqlHeuristicValidation.cs` | Security heuristics (internal) |
-| `src/SqlChat.Ai/Generators/AnthropicSqlGenerator.cs` | LLM SQL generation |
-| `src/SqlChat.Ai/Prompts/SchemaPromptBuilder.cs` | Schema → system prompt + SQL extraction (internal) |
+| `src/SqlChat.Ai/Generators/AnthropicSqlGenerator.cs` | Anthropic LLM SQL generation |
+| `src/SqlChat.Ai/Generators/OpenAiSqlGenerator.cs` | OpenAI LLM SQL generation |
+| `src/SqlChat.Ai/Options/OpenAiSqlGeneratorOptions.cs` | Options for `OpenAiSqlGenerator` |
+| `src/SqlChat.Ai/Prompts/SchemaPromptBuilder.cs` | Schema → system prompt + SQL extraction; shared by all generators (internal) |
 | `src/SqlChat.Client/ISqlChatClient.cs` | Public client interface |
 | `src/SqlChat.Client/SqlChatClient.cs` | Implements `ISqlChatClient`; internal constructor |
 | `src/SqlChat.Client/SqlChatBuilder.cs` | Non-DI public API |

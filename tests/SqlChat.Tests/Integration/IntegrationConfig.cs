@@ -21,6 +21,11 @@ internal static class IntegrationConfig
 
     public static string AnthropicModel => "claude-haiku-4-5-20251001";
 
+    public static string? OpenAiApiKey =>
+        Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+
+    public static string OpenAiModel => "gpt-4o-mini";
+
     public static int QueryRetryMax =>
         int.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_QUERY_RETRY_MAX"), out var v) ? v : 3;
 

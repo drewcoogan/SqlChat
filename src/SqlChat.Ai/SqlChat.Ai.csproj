@@ -3,7 +3,8 @@
     <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
     <ProjectReference Include="..\SqlChat.Client\SqlChat.Client.csproj" />
     <PackageReference Include="Anthropic.SDK" Version="5.*" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageReference Include="OpenAI" Version="2.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup>

@@ -163,7 +163,7 @@ A caller drops SqlChat into an existing ASP.NET Core app, points it at their Pos
 ## Non-Goals
 
 - Streaming SQL generation is not planned
-- Multi-LLM support (Azure OpenAI, etc.) is deferred until Anthropic integration is solid
+- Azure OpenAI is not planned — vanilla OpenAI (`OpenAiSqlGenerator`) is fully supported; Azure OpenAI is a distinct integration with different auth and deployment conventions
 
 ---
 

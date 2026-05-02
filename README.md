@@ -98,6 +98,28 @@ services.AddSqlChat()
     });
 ```
 
+### From a YAML schema file (no live DB)
+
+If your database lives in a separate repo or you don't want a live connection in your service, bootstrap the schema from a YAML file instead:
+
+```csharp
+// DI
+services.AddSqlChat()
+    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseOpenAi(opts => opts.ApiKey = builder.Configuration["OpenAI:ApiKey"]);
+
+// Non-DI
+var client = new SqlChatBuilder()
+    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseGenerator(new OpenAiSqlGenerator(new OpenAiSqlGeneratorOptions
+    {
+        ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+    }))
+    .Build();
+```
+
+See [Schema from DDL Files](#schema-from-ddl-files) for how to generate the YAML.
+
 ### Without DI
 
 ```csharp
@@ -193,6 +215,117 @@ services.AddSqlChat()
 ```
 
 Enrichment is additive — it merges on top of the introspected schema. Use `ExcludeTable` / `ExcludeColumn` to hide tables or columns you don't want the LLM to see.
+
+---
+
+## Schema from DDL Files
+
+When your database lives in a separate repository or you don't have a live connection available at runtime, SqlChat can build a `SchemaCatalog` directly from your SQL DDL files (standard `CREATE TABLE` statements).
+
+### Step 1 — Scan DDL and save YAML (in your DB repo)
+
+```csharp
+using SqlChat.Data.Schema;
+using SqlChat.Data.Serialization;
+
+// Recursively scan a directory of .sql files
+SchemaCatalog schema = DdlSchemaScanner.ScanDirectory("./migrations");
+
+// Or scan a single file
+SchemaCatalog schema = DdlSchemaScanner.ScanFile("./schema.sql");
+
+// Persist as YAML — check this into your service repo
+await SchemaCatalogSerializer.SaveYamlAsync(schema, "sqlchat-schema.yaml");
+```
+
+### Step 2 — Use the YAML in your service (no live DB required)
+
+```csharp
+services.AddSqlChat()
+    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseOpenAi(opts => opts.ApiKey = builder.Configuration["OpenAI:ApiKey"]);
+```
+
+### What the scanner understands
+
+- `CREATE TABLE` and `CREATE TABLE IF NOT EXISTS`
+- Schema-qualified names (`public.orders`)
+- Inline and table-level `PRIMARY KEY` constraints
+- Inline and table-level `FOREIGN KEY ... REFERENCES` constraints
+- Multi-word types (`DOUBLE PRECISION`, `CHARACTER VARYING`, `TIMESTAMP WITH TIME ZONE`)
+- Types with precision (`DECIMAL(10,2)`, `VARCHAR(255)`)
+- `--` line comments and `/* */` block comments
+
+EF Core migration file parsing is not yet supported — use the raw DDL path for now.
+
+### Exporting from a live database
+
+You can also export a live database's introspected schema to YAML — useful for a one-time snapshot that you then annotate and check in:
+
+```csharp
+using SqlChat.Data.Providers;
+using SqlChat.Data.Serialization;
+
+// PostgreSQL
+var provider = new PostgresSchemaProvider("Host=localhost;Database=mydb;...");
+SchemaCatalog schema = await provider.GetSchemaAsync();
+await SchemaCatalogSerializer.SaveYamlAsync(schema, "sqlchat-schema.yaml");
+
+// SQL Server
+var provider = new SqlServerSchemaProvider("Server=localhost,1433;Database=mydb;...");
+SchemaCatalog schema = await provider.GetSchemaAsync();
+await SchemaCatalogSerializer.SaveYamlAsync(schema, "sqlchat-schema.yaml");
+```
+
+### Annotating the YAML to help the LLM
+
+The exported YAML supports optional `description` fields on both tables and columns. Filling these in is the most effective way to improve SQL quality on ambiguous or domain-specific schemas:
+
+```yaml
+tables:
+  - name: orders
+    schema: public
+    description: "Customer purchase orders. Only includes completed checkouts."
+    columns:
+      - name: id
+        storeType: int4
+        isPrimaryKey: true
+        isNullable: false
+      - name: status_id
+        storeType: int4
+        isNullable: false
+        description: "1 = pending, 2 = shipped, 3 = delivered, 4 = cancelled"
+      - name: total
+        storeType: numeric
+        isNullable: true
+        description: "Order total in USD cents, always positive"
+      - name: customer_id
+        storeType: int4
+        isNullable: false
+        foreignKey:
+          principalTable: customers
+          principalColumn: id
+```
+
+Edit the file, check it into your service repo, then load it with `UseSchemaFromFile`. No live DB connection is required at runtime.
+
+### Working with the catalog directly in code
+
+```csharp
+// Build manually
+var catalog = new SchemaCatalogBuilder()
+    .AddTable("orders", t => t
+        .AddColumn("id", "int", pk: true)
+        .AddColumn("customer_id", "int")
+        .AddColumn("total", "decimal(10,2)"))
+    .Build();
+
+// Serialize to YAML string
+string yaml = SchemaCatalogSerializer.ToYaml(catalog);
+
+// Deserialize from YAML string
+SchemaCatalog catalog = SchemaCatalogSerializer.FromYaml(yaml);
+```
 
 ---
 
@@ -310,7 +443,7 @@ The SQL Server 2022 image supports Apple Silicon natively. The test fixture crea
 
 ```
 SqlChat.Domain   → Core abstractions and domain models (no infrastructure deps)
-SqlChat.Data     → Schema introspection and query execution (PostgreSQL via Dapper + Polly)
+SqlChat.Data     → Schema introspection (PostgreSQL + SQL Server), DDL scanning, YAML serialization, query execution (Dapper + Polly)
 SqlChat.Service  → Orchestration, LLM retry loop, and SQL security validation
 SqlChat.Ai       → LLM SQL generation (Anthropic + OpenAI)
 SqlChat.Client   → Public API facade and DI registration

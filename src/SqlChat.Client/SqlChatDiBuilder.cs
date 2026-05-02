@@ -4,11 +4,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
+using SqlChat.Data.Serialization;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
 using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Options;
+using SqlChat.Domain.Providers;
 using SqlChat.Service.Engine;
 using SqlChat.Service.Security;
 
@@ -66,6 +68,14 @@ public sealed class SqlChatDiBuilder
             new SqlServerQueryExecutor(
                 sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString, Dialect = SqlDialect.SqlServer }));
         _concreteSchemaProviderType = typeof(SqlServerSchemaProvider);
+        return this;
+    }
+
+    public SqlChatDiBuilder UseSchemaFromFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var catalog = SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
+        Services.AddSingleton<ISchemaProvider>(new ManualSchemaProvider(catalog));
         return this;
     }
 

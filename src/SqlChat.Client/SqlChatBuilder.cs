@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
+using SqlChat.Data.Serialization;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
 using SqlChat.Domain.Extensions;
@@ -52,6 +53,14 @@ public sealed class SqlChatBuilder
     public SqlChatBuilder UseSchema(SchemaCatalog catalog)
     {
         _schemaProvider = new ManualSchemaProvider(catalog.Validate());
+        return this;
+    }
+
+    public SqlChatBuilder UseSchemaFromFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var catalog = SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
+        _schemaProvider = new ManualSchemaProvider(catalog);
         return this;
     }
 

@@ -21,7 +21,12 @@ SqlChat introspects the database schema directly from a connection string via `I
 
 ### 2. EF Core is a convenience shim, not a dependency
 
-If the caller already has a `DbContext` registered, they can pass it as a type argument and SqlChat will extract the connection string from it. **EF is only used for its connection string — not for entity metadata, model walking, or anything else.**
+If the caller already has a `DbContext` registered, they can use one of two EF paths:
+
+- **`UseEntityFramework<TContext>()`** — extracts the connection string from the `DbContext` and introspects the live database via `INFORMATION_SCHEMA`. No EF model walking.
+- **`UseSchemaFromEF<TContext>()`** — reads the schema from the EF model itself (`DbContext.Model`), giving the LLM richer context via `HasComment()` / `[Comment]` annotations. The right query executor (Postgres or SQL Server) is detected from `ProviderName`.
+
+Neither path requires EF migrations or entity tracking — EF is only used as a source of connection string or model metadata.
 
 ### 3. Enrichment is the quality lever
 

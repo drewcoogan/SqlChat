@@ -50,6 +50,22 @@ public sealed class SqlChatBuilder
         return this;
     }
 
+    public SqlChatBuilder UseSchemaFromEF(DbContext context)
+    {
+        context.Validate();
+        _schemaProvider = new EfCoreSchemaProvider(context.Model);
+
+        var cs = context.Database.IsRelational() ? context.Database.GetConnectionString() : null;
+        if (cs is not null)
+        {
+            _executor = context.Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) is true
+                ? new SqlServerQueryExecutor(new SqlChatOptions { ConnectionString = cs, Dialect = SqlDialect.SqlServer })
+                : new PostgresQueryExecutor(new SqlChatOptions { ConnectionString = cs });
+        }
+
+        return this;
+    }
+
     public SqlChatBuilder UseSchema(SchemaCatalog catalog)
     {
         _schemaProvider = new ManualSchemaProvider(catalog.Validate());
@@ -59,7 +75,9 @@ public sealed class SqlChatBuilder
     public SqlChatBuilder UseSchemaFromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var catalog = SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
+        var catalog = Path.GetExtension(path).ToLowerInvariant() == ".json"
+            ? SchemaCatalogSerializer.FromJson(File.ReadAllText(path))
+            : SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
         _schemaProvider = new ManualSchemaProvider(catalog);
         return this;
     }
@@ -123,7 +141,7 @@ public sealed class SqlChatBuilder
     {
         if (_schemaProvider is null)
             throw new InvalidOperationException(
-                "Configure a schema source with UseConnectionString, UseSchema, UseEntityFramework, or UseSchemaProvider before calling Build().");
+                "Configure a schema source with UseConnectionString, UseSchema, UseSchemaFromEF, UseEntityFramework, or UseSchemaProvider before calling Build().");
 
         if (_generator is null)
             throw new InvalidOperationException(

@@ -67,15 +67,47 @@ services.AddSqlChat()
     });
 ```
 
-### Convenience: EF Core
+### EF Core — connection string only
 
-If you already have a `DbContext` registered, pass it as a type argument — SqlChat extracts the connection string from it. No EF model walking, no entity mapping.
+If you already have a `DbContext` registered, pass it as a type argument — SqlChat extracts the connection string and introspects the schema from the live database via `INFORMATION_SCHEMA`.
 
 ```csharp
 services.AddSqlChat()
     .UseEntityFramework<AppDbContext>()
     .UseAnthropic(opts => opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"]);
 ```
+
+### EF Core — use the model as schema
+
+`UseSchemaFromEF` reads the schema from the EF model itself instead of querying `INFORMATION_SCHEMA`. This gives the LLM richer context: any `HasComment()` / `[Comment]` annotations on entities and properties flow through as descriptions in the prompt.
+
+```csharp
+// DI
+services.AddSqlChat()
+    .UseSchemaFromEF<AppDbContext>()
+    .UseAnthropic(opts => opts.AnthropicApiKey = builder.Configuration["Anthropic:ApiKey"]);
+
+// Non-DI
+await using var db = new AppDbContext(options);
+var client = new SqlChatBuilder()
+    .UseSchemaFromEF(db)
+    .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
+    {
+        AnthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    }))
+    .Build();
+```
+
+The right executor (Postgres or SQL Server) is detected automatically from `ProviderName`. For InMemory contexts (common in tests), no executor is wired up — `GenerateSqlAsync` works but `QueryAsync` is unavailable.
+
+**When to use model-based schema vs live introspection:**
+
+| | `UseSchemaFromEF` (model) | `UseEntityFramework` / connection string (live) |
+|---|---|---|
+| Schema source | EF `IModel` — in-memory, no DB roundtrip | `INFORMATION_SCHEMA` — always matches the live DB |
+| Richness | Includes `HasComment()` / `[Comment]` descriptions | Column types, PKs, FKs only |
+| Staleness risk | Model may diverge from DB if migrations are pending | Always up to date |
+| Best for | Well-annotated models, offline schema generation | Simple setup, no annotations needed |
 
 ### Primary: OpenAI
 
@@ -420,7 +452,7 @@ dotnet test SqlChat.sln
 |---|---|
 | `ANTHROPIC_API_KEY` | Your Anthropic API key |
 | `OPENAI_API_KEY` | Your OpenAI API key |
-| `SQLCHAT_CONNECTION_STRING` | Postgres connection string |
+| `SQLCHAT_POSTGRES_CONNECTION_STRING` | Postgres connection string |
 | `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
 
 **SQL Server variables** (optional — SQL Server tests are skipped if absent):

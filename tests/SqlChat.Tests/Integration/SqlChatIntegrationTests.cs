@@ -5,7 +5,7 @@ namespace SqlChat.Tests.Integration;
 /// These tests are skipped unless SQLCHAT_RUN_INTEGRATION_TESTS=true.
 ///
 /// Required env vars (see .env.example):
-///   ANTHROPIC_API_KEY, SQLCHAT_CONNECTION_STRING, SQLCHAT_RUN_INTEGRATION_TESTS=true
+///   ANTHROPIC_API_KEY, SQLCHAT_POSTGRES_CONNECTION_STRING, SQLCHAT_RUN_INTEGRATION_TESTS=true
 ///
 /// The DatabaseFixture creates and seeds the test schema before all tests in this class
 /// and drops it afterward. See DatabaseFixture for the known seed constants used below.

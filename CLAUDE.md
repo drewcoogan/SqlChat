@@ -59,7 +59,7 @@ SqlChat never throws to the caller — all outcomes are expressed via `IsFailed`
 - `PostgresSchemaProvider` — introspects a live Postgres DB via `INFORMATION_SCHEMA`
 - `SqlServerSchemaProvider` — introspects a live SQL Server DB via `INFORMATION_SCHEMA` (T-SQL dialect)
 - `ManualSchemaProvider` — wraps a pre-built `SchemaCatalog`; used in unit tests
-- `EfCoreSchemaProvider` — legacy; walks an EF Core `IModel`. Being replaced: the EF convenience path now only extracts the connection string from the `DbContext` and delegates to `PostgresSchemaProvider`
+- `EfCoreSchemaProvider` — walks an EF Core `IModel`; used by `UseSchemaFromEF` / `UseSchemaFromEF<TContext>()`. Surfaces `HasComment()` / `[Comment]` annotations as `Description` on tables and columns
 
 Both relational providers extend `RelationalSchemaProvider` (abstract base) — add new DB support by subclassing it and supplying the three `INFORMATION_SCHEMA` queries.
 
@@ -105,11 +105,21 @@ services.AddSqlChat()
     });
 ```
 
-**EF Core convenience — connection string extraction only:**
+**EF Core — connection string extraction only:**
 ```csharp
-// Extracts connection string from DbContext; does NOT walk the EF model
+// Extracts connection string from DbContext; introspects live DB via INFORMATION_SCHEMA
 services.AddSqlChat()
     .UseEntityFramework<AppDbContext>()
+    .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
+```
+
+**EF Core — use the model as schema:**
+```csharp
+// Uses EfCoreSchemaProvider(DbContext.Model); HasComment() annotations become descriptions
+// Detects Postgres vs SQL Server from ProviderName and wires the right executor
+// InMemory contexts skip executor setup (GenerateSqlAsync works; QueryAsync unavailable)
+services.AddSqlChat()
+    .UseSchemaFromEF<AppDbContext>()
     .UseAnthropic(opts => opts.AnthropicApiKey = "sk-ant-...");
 ```
 
@@ -204,9 +214,12 @@ var text = response.Value.Content[0].Text;
 
 Both generators call `SchemaPromptBuilder.BuildSystemPrompt` and `SchemaPromptBuilder.ExtractSql` — these are shared and provider-agnostic.
 
-### EF Core Integration (Connection String Only)
+### EF Core Integration
 
-The EF convenience path (`UseEntityFramework<TContext>()`) extracts the connection string from the registered `DbContext` via `context.Database.GetConnectionString()` and passes it to `PostgresSchemaProvider`. **It does not walk the EF model.** `EfCoreSchemaProvider` (which maps `IModel` → `SchemaCatalog`) is legacy and will be removed.
+Two EF paths are available:
+
+- **`UseEntityFramework<TContext>()`** — extracts the connection string via `context.Database.GetConnectionString()` and delegates to `PostgresSchemaProvider` for live `INFORMATION_SCHEMA` introspection. Does not walk the EF model.
+- **`UseSchemaFromEF<TContext>()`** — builds the schema from `EfCoreSchemaProvider(context.Model)`. `HasComment()` / `[Comment]` annotations on entities and properties flow through as `Description` on `TableDescriptor` / `ColumnDescriptor`. The executor is auto-detected from `context.Database.ProviderName` (Postgres or SQL Server); InMemory contexts get no executor. Enrichment (`.Enrich()`) is supported via `_concreteSchemaProviderType = typeof(EfCoreSchemaProvider)`.
 
 ### Security Constraint — Read-Only Queries Only
 
@@ -245,7 +258,7 @@ The table below tracks what exists today vs what needs to be built.
 | `ExcludeTable` / `ExcludeColumn` / column descriptions | ✅ Done | Applied by `EnrichingSchemaProvider` at schema fetch time |
 | EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
 | `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `DapperRetryExtensions` are `internal`; `SqlChatClient` constructor is `internal`; `InternalsVisibleTo` grants `SqlChat.Client` and `SqlChat.Tests` access |
-| `EfCoreSchemaProvider` — EF model walking | ⚠️ Legacy | Still exists; not used by primary paths; pending removal |
+| `UseSchemaFromEF` / `UseSchemaFromEF<TContext>()` — EF model as schema source | ✅ Done | Uses `EfCoreSchemaProvider`; auto-detects executor from `ProviderName`; supports enrichment |
 
 **When implementing**: work top-to-bottom through the planned items. Each item that touches the public API surface should be reviewed against `docs/VISION.md` before coding.
 
@@ -304,7 +317,7 @@ The integration test environment file lives in `tests/SqlChat.Tests/`. Copy the 
 
 ```bash
 cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
-# edit .env — set ANTHROPIC_API_KEY, SQLCHAT_CONNECTION_STRING, and SQLCHAT_RUN_INTEGRATION_TESTS=true
+# edit .env — set ANTHROPIC_API_KEY, SQLCHAT_POSTGRES_CONNECTION_STRING, and SQLCHAT_RUN_INTEGRATION_TESTS=true
 ```
 
 `ANTHROPIC_API_KEY` is read at construction time by `AnthropicSqlGenerator` via `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it. See `.env.example` for all available variables and their defaults.
@@ -331,7 +344,7 @@ SQLCHAT_SQLSERVER_CONNECTION_STRING=Server=localhost,1433;Database=sqlchat_test;
 
 For Postgres via Docker (instead of a local install), use:
 ```
-SQLCHAT_CONNECTION_STRING=Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=postgres;SSL Mode=Disable
+SQLCHAT_POSTGRES_CONNECTION_STRING=Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=postgres;SSL Mode=Disable
 ```
 
 The `SqlServerDatabaseFixture` creates and tears down the `sqlchat_test` database automatically on each test run.
@@ -419,11 +432,8 @@ There is no Azure OpenAI generator or options class. Vanilla OpenAI ChatGPT (`Op
 ### SemanticTags — Not Wired Up
 `ColumnDescriptor.SemanticTags` (`IReadOnlySet<string>`, case-insensitive) exists on the domain model and can be set via `SchemaCatalogBuilder`, but **no schema provider populates it** and **`SchemaPromptBuilder` does not include it** in the system prompt. The hook is there for future enrichment; don't treat its absence as a bug.
 
-### EfCoreSchemaProvider — Legacy, Pending Removal
-`EfCoreSchemaProvider` walks the EF Core `IModel` to build a `SchemaCatalog`. This is the old primary path and is being replaced. The EF convenience init (`AddSqlChat<TContext>()`) will extract the connection string from the `DbContext` and delegate to `PostgresSchemaProvider` instead. Do not invest further in `EfCoreSchemaProvider`.
-
 ### Composite Foreign Keys — Filtered Out
-`EfCoreSchemaProvider` only maps **single-column FKs** to `ForeignKeyReference`. Multi-column FKs are silently skipped. This limitation is moot once `EfCoreSchemaProvider` is removed — `PostgresSchemaProvider` reads FK relationships directly from `INFORMATION_SCHEMA`.
+`EfCoreSchemaProvider` only maps **single-column FKs** to `ForeignKeyReference`. Multi-column FKs are silently skipped. This is a known limitation of the `UseSchemaFromEF` path; `PostgresSchemaProvider` and `SqlServerSchemaProvider` read FK relationships directly from `INFORMATION_SCHEMA` and are not affected.
 
 ### No Schema Caching
 Every `GetSchemaAsync()` call rebuilds the `SchemaCatalog` from scratch. For `EfCoreSchemaProvider` this is cheap (in-memory EF model walk). For `PostgresSchemaProvider` this is a live DB query on every call. A caching decorator could wrap `ISchemaProvider` if needed — no changes to the core pipeline required.
@@ -466,7 +476,7 @@ There are no Azure OpenAI stubs to extend. If Azure OpenAI support is ever added
 | `src/SqlChat.Data/Providers/SqlServerSchemaProvider.cs` | Live SQL Server introspection (T-SQL) |
 | `src/SqlChat.Data/Execution/PostgresQueryExecutor.cs` | Postgres query execution via Dapper + Polly |
 | `src/SqlChat.Data/Execution/SqlServerQueryExecutor.cs` | SQL Server query execution via Dapper + Polly |
-| `src/SqlChat.Data/Providers/EfCoreSchemaProvider.cs` | EF Core `IModel` → `SchemaCatalog` (legacy) |
+| `src/SqlChat.Data/Providers/EfCoreSchemaProvider.cs` | EF Core `IModel` → `SchemaCatalog`; used by `UseSchemaFromEF` |
 | `src/SqlChat.Service/Engine/TextToSqlEngine.cs` | Main orchestrator (internal) |
 | `src/SqlChat.Service/Security/SqlHeuristicValidation.cs` | Security heuristics (internal) |
 | `src/SqlChat.Ai/Generators/AnthropicSqlGenerator.cs` | Anthropic LLM SQL generation |

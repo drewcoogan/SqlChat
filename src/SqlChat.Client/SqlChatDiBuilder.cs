@@ -47,6 +47,28 @@ public sealed class SqlChatDiBuilder
         return this;
     }
 
+    public SqlChatDiBuilder UseSchemaFromEF<TContext>() where TContext : DbContext
+    {
+        Services.AddScoped(sp => new EfCoreSchemaProvider(sp.GetRequiredService<TContext>().Model));
+        Services.AddScoped<ISchemaProvider>(sp => sp.GetRequiredService<EfCoreSchemaProvider>());
+        Services.AddScoped<IQueryExecutor>(sp =>
+        {
+            var context = sp.GetRequiredService<TContext>();
+            var cs = context.Database.IsRelational() ? context.Database.GetConnectionString() : null;
+
+            // InMemory or no-connection contexts: return null so SqlChatClient receives no executor.
+            // QueryAsync will be unavailable; GenerateSqlAsync works without a live DB.
+            if (cs is null) return null!;
+
+            var optionsBase = sp.GetService<SqlChatOptions>();
+            return context.Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) is true
+                ? new SqlServerQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs, Dialect = SqlDialect.SqlServer })
+                : new PostgresQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs });
+        });
+        _concreteSchemaProviderType = typeof(EfCoreSchemaProvider);
+        return this;
+    }
+
     public SqlChatDiBuilder UsePostgresConnectionString(string connectionString)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
@@ -74,7 +96,9 @@ public sealed class SqlChatDiBuilder
     public SqlChatDiBuilder UseSchemaFromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var catalog = SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
+        var catalog = Path.GetExtension(path).ToLowerInvariant() == ".json"
+            ? SchemaCatalogSerializer.FromJson(File.ReadAllText(path))
+            : SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
         Services.AddSingleton<ISchemaProvider>(new ManualSchemaProvider(catalog));
         return this;
     }

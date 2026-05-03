@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SqlChat.Domain.Models;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -16,10 +17,20 @@ public static class SchemaCatalogSerializer
         .IgnoreUnmatchedProperties()
         .Build();
 
+    private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     public static string ToYaml(SchemaCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         return _serializer.Serialize(SchemaCatalogYaml.FromDomain(catalog));
+    }
+
+    public static SchemaCatalog FromJson(string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        var dto = JsonSerializer.Deserialize<SchemaCatalogYaml>(json, _jsonOptions)
+            ?? throw new InvalidOperationException("Failed to deserialize schema JSON.");
+        return dto.ToDomain();
     }
 
     public static SchemaCatalog FromYaml(string yaml)

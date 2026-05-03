@@ -158,6 +158,84 @@ public sealed class SqlChatDiBuilderTests
     }
 
     // -------------------------------------------------------------------------
+    // UseSchemaFromFile
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task UseSchemaFromFile_JsonExtension_LoadsSchema()
+    {
+        var path = Path.ChangeExtension(Path.GetTempFileName(), ".json");
+        File.WriteAllText(path, """
+            {
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "storeType": "int", "isPrimaryKey": true, "isNullable": false },
+                    { "name": "total", "storeType": "decimal", "isNullable": false }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddSqlChat()
+                .UseSchemaFromFile(path)
+                .UseGenerator(new FakeSqlGenerator("SELECT 1"));
+
+            var provider = services.BuildServiceProvider().GetRequiredService<ISchemaProvider>();
+            var catalog = await provider.GetSchemaAsync();
+
+            Assert.Single(catalog.Tables);
+            Assert.Equal("orders", catalog.Tables[0].Name);
+            Assert.Equal(2, catalog.Tables[0].Columns.Count);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task UseSchemaFromFile_YamlExtension_LoadsSchema()
+    {
+        var path = Path.ChangeExtension(Path.GetTempFileName(), ".yaml");
+        File.WriteAllText(path, """
+            tables:
+              - name: customers
+                columns:
+                  - name: id
+                    storeType: int
+                    isPrimaryKey: true
+                    isNullable: false
+                  - name: email
+                    storeType: varchar
+                    isNullable: false
+            """);
+
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddSqlChat()
+                .UseSchemaFromFile(path)
+                .UseGenerator(new FakeSqlGenerator("SELECT 1"));
+
+            var provider = services.BuildServiceProvider().GetRequiredService<ISchemaProvider>();
+            var catalog = await provider.GetSchemaAsync();
+
+            Assert.Single(catalog.Tables);
+            Assert.Equal("customers", catalog.Tables[0].Name);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // EnrichFromFile
     // -------------------------------------------------------------------------
 

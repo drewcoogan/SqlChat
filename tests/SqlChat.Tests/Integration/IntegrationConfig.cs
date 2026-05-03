@@ -13,8 +13,8 @@ internal static class IntegrationConfig
         bool.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_RUN_INTEGRATION_TESTS"), out var v) && v;
 
     public static string ConnectionString =>
-        Environment.GetEnvironmentVariable("SQLCHAT_CONNECTION_STRING")
-            ?? throw new InvalidOperationException("SQLCHAT_CONNECTION_STRING is not set. Check tests/SqlChat.Tests/.env.");
+        Environment.GetEnvironmentVariable("SQLCHAT_POSTGRES_CONNECTION_STRING")
+            ?? throw new InvalidOperationException("SQLCHAT_POSTGRES_CONNECTION_STRING is not set. Check tests/SqlChat.Tests/.env.");
 
     public static string? AnthropicApiKey =>
         Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");

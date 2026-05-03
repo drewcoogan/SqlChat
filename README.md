@@ -15,7 +15,7 @@ foreach (Order order in result.Data) { ... }
 
 ## Requirements
 
-- .NET 10
+- .NET 8 or .NET 10
 - PostgreSQL **or** SQL Server database
 - An [Anthropic API key](https://console.anthropic.com/) **or** an [OpenAI API key](https://platform.openai.com/)
 
@@ -130,19 +130,19 @@ services.AddSqlChat()
     });
 ```
 
-### From a YAML schema file (no live DB)
+### From a file (JSON or YAML, no live DB)
 
-If your database lives in a separate repo or you don't want a live connection in your service, bootstrap the schema from a YAML file instead:
+If your database lives in a separate repo or you don't want a live connection in your service, bootstrap the schema from a JSON or YAML file instead. The file extension determines the format:
 
 ```csharp
 // DI
 services.AddSqlChat()
-    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseSchemaFromFile("sqlchat-schema.yaml")   // or .json
     .UseOpenAi(opts => opts.ApiKey = builder.Configuration["OpenAI:ApiKey"]);
 
 // Non-DI
 var client = new SqlChatBuilder()
-    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseSchemaFromFile("sqlchat-schema.json")   // or .yaml
     .UseGenerator(new OpenAiSqlGenerator(new OpenAiSqlGeneratorOptions
     {
         ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -150,7 +150,7 @@ var client = new SqlChatBuilder()
     .Build();
 ```
 
-See [Schema from DDL Files](#schema-from-ddl-files) for how to generate the YAML.
+See [Schema from DDL Files](#schema-from-ddl-files) for how to generate the file.
 
 ### Without DI
 
@@ -254,7 +254,7 @@ Enrichment is additive — it merges on top of the introspected schema. Use `Exc
 
 When your database lives in a separate repository or you don't have a live connection available at runtime, SqlChat can build a `SchemaCatalog` directly from your SQL DDL files (standard `CREATE TABLE` statements).
 
-### Step 1 — Scan DDL and save YAML (in your DB repo)
+### Step 1 — Scan DDL and save the schema file (in your DB repo)
 
 ```csharp
 using SqlChat.Data.Schema;
@@ -266,15 +266,15 @@ SchemaCatalog schema = DdlSchemaScanner.ScanDirectory("./migrations");
 // Or scan a single file
 SchemaCatalog schema = DdlSchemaScanner.ScanFile("./schema.sql");
 
-// Persist as YAML — check this into your service repo
+// Persist as YAML or JSON — check this into your service repo
 await SchemaCatalogSerializer.SaveYamlAsync(schema, "sqlchat-schema.yaml");
 ```
 
-### Step 2 — Use the YAML in your service (no live DB required)
+### Step 2 — Use the file in your service (no live DB required)
 
 ```csharp
 services.AddSqlChat()
-    .UseSchemaFromFile("sqlchat-schema.yaml")
+    .UseSchemaFromFile("sqlchat-schema.yaml")   // or .json
     .UseOpenAi(opts => opts.ApiKey = builder.Configuration["OpenAI:ApiKey"]);
 ```
 
@@ -309,10 +309,11 @@ SchemaCatalog schema = await provider.GetSchemaAsync();
 await SchemaCatalogSerializer.SaveYamlAsync(schema, "sqlchat-schema.yaml");
 ```
 
-### Annotating the YAML to help the LLM
+### Annotating the schema file to help the LLM
 
-The exported YAML supports optional `description` fields on both tables and columns. Filling these in is the most effective way to improve SQL quality on ambiguous or domain-specific schemas:
+Both YAML and JSON support optional `description` fields on tables and columns. Filling these in is the most effective way to improve SQL quality on ambiguous or domain-specific schemas:
 
+**YAML:**
 ```yaml
 tables:
   - name: orders
@@ -339,6 +340,25 @@ tables:
           principalColumn: id
 ```
 
+**JSON:**
+```json
+{
+  "tables": [
+    {
+      "name": "orders",
+      "schema": "public",
+      "description": "Customer purchase orders. Only includes completed checkouts.",
+      "columns": [
+        { "name": "id", "storeType": "int4", "isPrimaryKey": true, "isNullable": false },
+        { "name": "status_id", "storeType": "int4", "isNullable": false, "description": "1 = pending, 2 = shipped, 3 = delivered, 4 = cancelled" },
+        { "name": "total", "storeType": "numeric", "isNullable": true, "description": "Order total in USD cents, always positive" },
+        { "name": "customer_id", "storeType": "int4", "isNullable": false, "foreignKey": { "principalTable": "customers", "principalColumn": "id" } }
+      ]
+    }
+  ]
+}
+```
+
 Edit the file, check it into your service repo, then load it with `UseSchemaFromFile`. No live DB connection is required at runtime.
 
 ### Working with the catalog directly in code
@@ -352,11 +372,12 @@ var catalog = new SchemaCatalogBuilder()
         .AddColumn("total", "decimal(10,2)"))
     .Build();
 
-// Serialize to YAML string
+// Serialize
 string yaml = SchemaCatalogSerializer.ToYaml(catalog);
 
-// Deserialize from YAML string
-SchemaCatalog catalog = SchemaCatalogSerializer.FromYaml(yaml);
+// Deserialize
+SchemaCatalog fromYaml = SchemaCatalogSerializer.FromYaml(yaml);
+SchemaCatalog fromJson = SchemaCatalogSerializer.FromJson(json);
 ```
 
 ---
@@ -446,25 +467,25 @@ Then set `SQLCHAT_RUN_INTEGRATION_TESTS=true` in `.env` and run:
 dotnet test SqlChat.sln
 ```
 
-**PostgreSQL variables:**
-
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Your Anthropic API key |
 | `OPENAI_API_KEY` | Your OpenAI API key |
 | `SQLCHAT_POSTGRES_CONNECTION_STRING` | Postgres connection string |
+| `SQLCHAT_SQLSERVER_CONNECTION_STRING` | SQL Server connection string (optional — SQL Server tests skip if absent) |
 | `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
-
-**SQL Server variables** (optional — SQL Server tests are skipped if absent):
-
-| Variable | Description |
-|---|---|
-| `SQLCHAT_SQLSERVER_CONNECTION_STRING` | SQL Server connection string |
 
 A `docker-compose.yml` at the repo root defines both SQL Server and Postgres. Start the full test environment with:
 
 ```bash
 docker compose up -d
+```
+
+Then set these values in `.env`:
+
+```
+SQLCHAT_POSTGRES_CONNECTION_STRING=Host=localhost;Port=5432;Database=sqlchat_test;Username=postgres;Password=postgres;SSL Mode=Disable
+SQLCHAT_SQLSERVER_CONNECTION_STRING=Server=localhost,1433;Database=sqlchat_test;User Id=sa;Password=SqlChat_Strong@Pass1;TrustServerCertificate=true;
 ```
 
 The SQL Server 2022 image supports Apple Silicon natively. The test fixture creates and tears down the test database automatically.

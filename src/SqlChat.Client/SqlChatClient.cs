@@ -59,6 +59,19 @@ public sealed class SqlChatClient : ISqlChatClient
     public Task<string> GenerateSqlAsync(string naturalLanguage, CancellationToken ct = default) =>
         _engine.GenerateSqlAsync(naturalLanguage, ct);
 
+    public async Task<SqlChatResult> PreviewSqlAsync(string naturalLanguage, CancellationToken ct = default)
+    {
+        try
+        {
+            var sql = await _engine.GenerateSqlAsync(naturalLanguage, ct).ConfigureAwait(false);
+            return SqlChatResult.Success(sql);
+        }
+        catch (Exception ex)
+        {
+            return SqlChatResult.Fail(ex.Message);
+        }
+    }
+
     public SqlValidationResult ValidateGeneratedSql(string sql) =>
         _engine.ValidateGeneratedSql(sql);
 

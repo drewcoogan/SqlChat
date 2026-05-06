@@ -42,7 +42,7 @@ SqlChat generates the SQL, validates it, and executes it. Results are returned i
 
 ### 5. Errors are returned, not thrown
 
-SqlChat does not throw exceptions to the caller. All outcomes — success, transient DB failure, LLM error, security rejection — are expressed through the result object. The caller inspects `IsFailed` and `Error` and handles the outcome themselves.
+SqlChat does not throw exceptions to the caller. All outcomes — success, transient DB failure, LLM error, security rejection — are expressed through the result object. The caller inspects `IsSuccess` and `Error` and handles the outcome themselves.
 
 ### 6. Retry is handled internally
 
@@ -63,7 +63,6 @@ class SqlChatResult
 {
     string  Sql        // the SQL that was generated and executed
     bool    IsSuccess
-    bool    IsFailed
     string? Error      // populated on failure
 }
 
@@ -141,7 +140,7 @@ services.AddSqlChat()
 // Collection — returns SqlChatCollectionResult<T>
 SqlChatCollectionResult<Order> result = await sqlChat.QueryAsync<Order>("show me all orders this month");
 
-if (result.IsFailed)
+if (!result.IsSuccess)
 {
     logger.LogError("Query failed: {Error}", result.Error);
     return;
@@ -152,6 +151,11 @@ Console.WriteLine(result.Sql); // "SELECT * FROM orders WHERE ..."
 
 // Single — returns SqlChatResult<T>
 SqlChatResult<Customer> result = await sqlChat.QuerySingleAsync<Customer>("find customer with email foo@bar.com");
+
+// Preview — generate + validate SQL without executing, returns base SqlChatResult
+SqlChatResult preview = await sqlChat.PreviewSqlAsync("show me all orders this month");
+if (preview.IsSuccess)
+    Console.WriteLine(preview.Sql); // "SELECT * FROM orders WHERE ..."
 ```
 
 ## Package

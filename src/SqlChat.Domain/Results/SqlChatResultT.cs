@@ -7,7 +7,7 @@ public record SqlChatResult<T> : SqlChatResult
     public static SqlChatResult<T> Success(T? data, string sql) =>
         new() { Data = data, Sql = sql, IsSuccess = true };
 
-    public static SqlChatResult<T> Fail(string error) =>
+    public new static SqlChatResult<T> Fail(string error) =>
         new() { IsSuccess = false, Error = error };
 
     public static SqlChatResult<T> Fail(string sql, string error) =>

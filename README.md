@@ -43,7 +43,7 @@ public class ReportService(SqlChatClient sqlChat)
     {
         SqlChatCollectionResult<Order> result = await sqlChat.QueryAsync<Order>("all orders this month");
 
-        if (result.IsFailed)
+        if (!result.IsSuccess)
         {
             Console.WriteLine(result.Error);
             return;
@@ -186,7 +186,6 @@ SqlChatCollectionResult<Order> result = await client.QueryAsync<Order>("all orde
 SqlChatCollectionResult<T> result = await sqlChat.QueryAsync<T>("question");
 
 result.IsSuccess   // bool
-result.IsFailed    // bool
 result.Sql         // the SELECT that was generated and executed
 result.Data        // IEnumerable<T>
 result.Error       // string?, populated on failure
@@ -200,7 +199,20 @@ SqlChatResult<T> result = await sqlChat.QuerySingleAsync<T>("question");
 result.Data        // T?
 ```
 
-Both variants inherit from the same `SqlChatResult` base — `Sql`, `IsSuccess`, `IsFailed`, and `Error` are always present. SqlChat never throws; check `IsFailed` and handle the outcome yourself.
+### Preview SQL without executing
+
+Generate and validate SQL without running it against the database. Useful for dry-runs, logging, or displaying the query to a user before committing to execution:
+
+```csharp
+SqlChatResult result = await sqlChat.PreviewSqlAsync("all orders this month");
+
+if (result.IsSuccess)
+    Console.WriteLine(result.Sql);   // SELECT * FROM orders WHERE ...
+```
+
+`PreviewSqlAsync` returns the same `SqlChatResult` base type — `Sql`, `IsSuccess`, and `Error` — and never throws.
+
+All variants inherit from the same `SqlChatResult` base — `Sql`, `IsSuccess`, and `Error` are always present. SqlChat never throws; check `IsSuccess` and handle the outcome yourself.
 
 ---
 
@@ -391,7 +403,7 @@ SqlChat enforces a strict read-only contract that cannot be bypassed through the
 - `SELECT INTO` is rejected (it writes data)
 - Multi-statement input is rejected if any statement is non-`SELECT`
 
-Violations are surfaced as a failed result — `IsFailed = true`, `Error` contains the rejection reason. Nothing is executed.
+Violations are surfaced as a failed result — `IsSuccess = false`, `Error` contains the rejection reason. Nothing is executed.
 
 ---
 
@@ -467,13 +479,15 @@ Then set `SQLCHAT_RUN_INTEGRATION_TESTS=true` in `.env` and run:
 dotnet test SqlChat.sln
 ```
 
-| Variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `OPENAI_API_KEY` | Your OpenAI API key |
-| `SQLCHAT_POSTGRES_CONNECTION_STRING` | Postgres connection string |
-| `SQLCHAT_SQLSERVER_CONNECTION_STRING` | SQL Server connection string (optional — SQL Server tests skip if absent) |
-| `SQLCHAT_RUN_INTEGRATION_TESTS` | Set to `true` to enable |
+Tests are gated per provider — set only what you have and the rest skip rather than fail:
+
+| Variable | Effect when set | Effect when absent |
+|---|---|---|
+| `SQLCHAT_RUN_INTEGRATION_TESTS=true` | Master switch — enables all integration tests | All integration tests skip |
+| `ANTHROPIC_API_KEY` | Enables Anthropic + Postgres end-to-end tests | Those tests skip |
+| `SQLCHAT_SQLSERVER_CONNECTION_STRING` + `ANTHROPIC_API_KEY` | Enables SQL Server end-to-end tests | Those tests skip |
+| `OPENAI_API_KEY` | Enables OpenAI connectivity test | That test skips |
+| `SQLCHAT_POSTGRES_CONNECTION_STRING` | Required for Postgres tests | Postgres tests fail |
 
 A `docker-compose.yml` at the repo root defines both SQL Server and Postgres. Start the full test environment with:
 

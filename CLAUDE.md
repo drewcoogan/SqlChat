@@ -44,14 +44,14 @@ User (natural language)
     → TextToSqlEngine
         → ISchemaProvider       → SchemaCatalog (introspected + enrichment merged)
         → ISqlGenerator         → raw SQL string
-        → ISqlSecurityValidator → rejects non-SELECT (surfaced as IsFailed, not thrown)
+        → ISqlSecurityValidator → rejects non-SELECT (surfaced as IsSuccess=false, not thrown)
         → IQueryExecutor        → executes SELECT via Dapper, maps to T
             → transient error   → Polly retry (QueryRetryMax)
             → syntax error      → feed DB error back to ISqlGenerator, retry (LlmFixRetryMax)
   → SqlChatCollectionResult<T> / SqlChatResult<T> returned to user
 ```
 
-SqlChat never throws to the caller — all outcomes are expressed via `IsFailed` / `Error` on the result.
+SqlChat never throws to the caller — all outcomes are expressed via `IsSuccess` / `Error` on the result.
 
 ### Pluggable Extension Points
 
@@ -85,7 +85,9 @@ Located in `SqlChat.Domain/Models/`:
 
 ### Public API
 
-Consumers program against `ISqlChatClient` — the interface exposes `QueryAsync<T>`, `QuerySingleAsync<T>`, `GenerateSqlAsync`, `ValidateGeneratedSql`, and `ValidateGeneratedSqlOrThrow`. `SqlChatClient` (the concrete class) has an `internal` constructor; always resolve it via DI or `SqlChatBuilder.Build()`.
+Consumers program against `ISqlChatClient` — the interface exposes `QueryAsync<T>`, `QuerySingleAsync<T>`, `GenerateSqlAsync`, `PreviewSqlAsync`, `ValidateGeneratedSql`, and `ValidateGeneratedSqlOrThrow`. `SqlChatClient` (the concrete class) has an `internal` constructor; always resolve it via DI or `SqlChatBuilder.Build()`.
+
+`PreviewSqlAsync(string naturalLanguage)` generates and validates SQL without executing it. Returns the base `SqlChatResult` — never throws, consistent with the rest of the API. Distinct from `GenerateSqlAsync` which returns a raw `string` and throws on failure.
 
 **DI path — PostgreSQL:**
 ```csharp
@@ -144,17 +146,21 @@ services.AddSqlChat()
 ```csharp
 // Collection
 SqlChatCollectionResult<Order> result = await sqlChat.QueryAsync<Order>("all orders this month");
-if (result.IsFailed) { /* result.Error */ }
+if (!result.IsSuccess) { /* result.Error */ }
 foreach (Order o in result.Data) { ... }
 
 // Single
 SqlChatResult<Customer> result = await sqlChat.QuerySingleAsync<Customer>("customer with email foo@bar.com");
+
+// Preview — generate + validate SQL without executing
+SqlChatResult preview = await sqlChat.PreviewSqlAsync("all orders this month");
+if (preview.IsSuccess) Console.WriteLine(preview.Sql);
 ```
 
 **Response types:**
 ```csharp
 // Base — on every response
-class SqlChatResult          { string Sql; bool IsSuccess; bool IsFailed; string? Error; }
+class SqlChatResult          { string Sql; bool IsSuccess; string? Error; }
 
 // Variants
 class SqlChatResult<T>           : SqlChatResult { T? Data; }
@@ -251,7 +257,7 @@ The table below tracks what exists today vs what needs to be built.
 | `SqlSecurityValidator` — heuristic read-only enforcement | ✅ Done | Blocks all non-SELECT |
 | `SchemaCatalogBuilder` — manual schema construction | ✅ Done | Used in tests; basis for enrichment layer |
 | `QueryAsync<T>()` / `QuerySingleAsync<T>()` | ✅ Done | Fully wired with LLM retry loop |
-| `SqlChatResult` / `SqlChatResult<T>` / `SqlChatCollectionResult<T>` | ✅ Done | Result types with `IsSuccess`/`IsFailed`/`Error` |
+| `SqlChatResult` / `SqlChatResult<T>` / `SqlChatCollectionResult<T>` | ✅ Done | Result types with `IsSuccess`/`Error` |
 | `IQueryExecutor` / `PostgresQueryExecutor` — Dapper + Polly execution | ✅ Done | Retries transient `NpgsqlException` via Polly |
 | LLM fix-and-retry loop (`LlmFixRetryMax`) | ✅ Done | In `TextToSqlEngine.RunWithLlmRetryAsync` |
 | `.Enrich()` / `.EnrichFromFile()` API | ✅ Done | `SchemaEnrichmentBuilder`, `EnrichingSchemaProvider` decorator; works with both Postgres and SQL Server |
@@ -259,6 +265,7 @@ The table below tracks what exists today vs what needs to be built.
 | EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
 | `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `DapperRetryExtensions` are `internal`; `SqlChatClient` constructor is `internal`; `InternalsVisibleTo` grants `SqlChat.Client` and `SqlChat.Tests` access |
 | `UseSchemaFromEF` / `UseSchemaFromEF<TContext>()` — EF model as schema source | ✅ Done | Uses `EfCoreSchemaProvider`; auto-detects executor from `ProviderName`; supports enrichment |
+| `PreviewSqlAsync` — generate + validate SQL without executing | ✅ Done | Returns base `SqlChatResult`; never throws; distinct from `GenerateSqlAsync` (raw string, throws) |
 
 **When implementing**: work top-to-bottom through the planned items. Each item that touches the public API surface should be reviewed against `docs/VISION.md` before coding.
 
@@ -303,6 +310,17 @@ The table below tracks what exists today vs what needs to be built.
 - One logical concept per test; multiple assertions are fine when they verify the same outcome
 - Tests live in `tests/SqlChat.Tests/` under a subfolder matching the source layer (`Security/`, `Data/`, `Schema/`, `Engine/`)
 
+**Integration test gating** — tests skip rather than fail when their prerequisite is absent:
+
+| Attribute | Skips unless |
+|---|---|
+| `[IntegrationFact]` | `SQLCHAT_RUN_INTEGRATION_TESTS=true` |
+| `[AnthropicIntegrationFact]` | above + `ANTHROPIC_API_KEY` set |
+| `[SqlServerIntegrationFact]` | above + `ANTHROPIC_API_KEY` + `SQLCHAT_SQLSERVER_CONNECTION_STRING` set |
+| `[OpenAiIntegrationFact]` | `SQLCHAT_RUN_INTEGRATION_TESTS=true` + `OPENAI_API_KEY` set |
+
+Use `[IntegrationFact]` only for pure infrastructure tests (DB connectivity ping) that don't call the LLM.
+
 ### Architecture Rules
 - `SqlChat.Domain` has **zero** infrastructure or framework references — no EF, no Dapper, no HttpClient
 - No domain logic in `SqlChat.Data` or `SqlChat.Ai` — those layers translate external representations into domain models
@@ -317,7 +335,8 @@ The integration test environment file lives in `tests/SqlChat.Tests/`. Copy the 
 
 ```bash
 cp tests/SqlChat.Tests/.env.example tests/SqlChat.Tests/.env
-# edit .env — set ANTHROPIC_API_KEY, SQLCHAT_POSTGRES_CONNECTION_STRING, and SQLCHAT_RUN_INTEGRATION_TESTS=true
+# edit .env — set SQLCHAT_RUN_INTEGRATION_TESTS=true and whichever API keys / connection strings you have
+# tests skip rather than fail for any provider whose key is absent
 ```
 
 `ANTHROPIC_API_KEY` is read at construction time by `AnthropicSqlGenerator` via `options.AnthropicApiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")`. `.env` is gitignored; never commit it. See `.env.example` for all available variables and their defaults.
@@ -439,7 +458,7 @@ There is no Azure OpenAI generator or options class. Vanilla OpenAI ChatGPT (`Op
 Every `GetSchemaAsync()` call rebuilds the `SchemaCatalog` from scratch. For `EfCoreSchemaProvider` this is cheap (in-memory EF model walk). For `PostgresSchemaProvider` this is a live DB query on every call. A caching decorator could wrap `ISchemaProvider` if needed — no changes to the core pipeline required.
 
 ### Read-Only Execution Only
-SqlChat only ever generates and executes `SELECT` statements — it will never run a mutating query. The security validator enforces this before any SQL reaches the database. Violations are surfaced as `IsFailed = true` on the result; nothing is executed.
+SqlChat only ever generates and executes `SELECT` statements — it will never run a mutating query. The security validator enforces this before any SQL reaches the database. Violations are surfaced as `IsSuccess = false` on the result; nothing is executed.
 
 ## What NOT To Do
 
@@ -447,10 +466,10 @@ SqlChat only ever generates and executes `SELECT` statements — it will never r
 
 SqlChat is **read-only by design, at every layer.** It will only ever execute `SELECT` statements — never anything that writes, modifies, or deletes data.
 
-`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `TRUNCATE`, DDL (`CREATE`, `ALTER`, `DROP`), and privilege commands (`GRANT`, `REVOKE`) are permanently out of scope — not a future feature, not an opt-in. This is enforced by `SqlSecurityValidator` before any SQL reaches the database. Violations surface as `IsFailed = true` on the result object.
+`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `TRUNCATE`, DDL (`CREATE`, `ALTER`, `DROP`), and privilege commands (`GRANT`, `REVOKE`) are permanently out of scope — not a future feature, not an opt-in. This is enforced by `SqlSecurityValidator` before any SQL reaches the database. Violations surface as `IsSuccess = false` on the result object.
 
 ### Never Throw to the Caller
-SqlChat catches all exceptions internally. Transient DB errors go through Polly retry. Syntax errors trigger an LLM retry loop. If all retries are exhausted, the outcome is expressed via `IsFailed = true` and `Error` on the result — not a thrown exception. Do not add `throw` statements on any code path reachable from `QueryAsync` or `QuerySingleAsync`.
+SqlChat catches all exceptions internally. Transient DB errors go through Polly retry. Syntax errors trigger an LLM retry loop. If all retries are exhausted, the outcome is expressed via `IsSuccess = false` and `Error` on the result — not a thrown exception. Do not add `throw` statements on any code path reachable from `QueryAsync` or `QuerySingleAsync`.
 
 ### Never Bypass the Security Validator
 `SqlSecurityValidator` runs inside `TextToSqlEngine.GenerateSqlAsync` and cannot be skipped via the public API. Do not add opt-outs, feature flags, or overloads that skip validation. If a query legitimately fails validation, the fix is in the prompt or schema context — not the validator.

@@ -12,8 +12,9 @@ internal static class SchemaPromptBuilder
         sb.AppendLine(dialect == SqlDialect.SqlServer ? "Database dialect: SQL Server (T-SQL)" : "Database dialect: PostgreSQL");
         sb.AppendLine();
         sb.AppendLine("Generate a valid SELECT query that answers the user's question using only the schema below.");
-        sb.AppendLine("Return ONLY the SQL query — no explanation, no markdown, no code fences.");
         sb.AppendLine("Use only SELECT statements. Never generate DML or DDL.");
+        sb.AppendLine("Your entire response must be the SQL query and nothing else — no explanation, no markdown, no code fences, no words before or after the query.");
+        sb.AppendLine("End the query with a semicolon.");
         sb.AppendLine();
         sb.AppendLine("## Schema");
 
@@ -57,6 +58,7 @@ internal static class SchemaPromptBuilder
     internal static string ExtractSql(string response)
     {
         var trimmed = response.Trim();
+
         var fenceStart = trimmed.IndexOf("```", StringComparison.Ordinal);
         if (fenceStart >= 0)
         {
@@ -65,9 +67,29 @@ internal static class SchemaPromptBuilder
             {
                 var fenceEnd = trimmed.IndexOf("```", contentStart, StringComparison.Ordinal);
                 if (fenceEnd >= 0)
-                    return trimmed[contentStart..fenceEnd].Trim();
+                    return TrimToLastSemicolon(trimmed[contentStart..fenceEnd].Trim());
             }
         }
+
+        // No fences — find the first line starting with SELECT or WITH and take
+        // everything up to and including the last semicolon.
+        var lines = trimmed.Split('\n');
+        var sqlStart = Array.FindIndex(lines, l =>
+        {
+            var t = l.TrimStart();
+            return t.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+                || t.StartsWith("WITH", StringComparison.OrdinalIgnoreCase);
+        });
+
+        if (sqlStart >= 0)
+            return TrimToLastSemicolon(string.Join('\n', lines[sqlStart..]).Trim());
+
         return trimmed;
+    }
+
+    private static string TrimToLastSemicolon(string sql)
+    {
+        var lastSemi = sql.LastIndexOf(';');
+        return lastSemi >= 0 ? sql[..(lastSemi + 1)] : sql;
     }
 }

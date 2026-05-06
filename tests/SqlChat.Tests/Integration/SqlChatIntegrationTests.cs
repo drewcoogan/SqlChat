@@ -27,7 +27,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Simple selects
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_AllCustomers_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -37,7 +37,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
         Assert.Equal(DatabaseFixture.TotalCustomers, result.Data.Count());
     }
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_AllOrders_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -51,7 +51,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Filtered selects
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_DeliveredOrders_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -61,7 +61,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
         Assert.Equal(DatabaseFixture.DeliveredOrders, result.Data.Count());
     }
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_ShippedOrders_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -71,7 +71,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
         Assert.Single(result.Data); // DatabaseFixture.ShippedOrders == 1
     }
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_PendingOrders_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -85,7 +85,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Join — orders for a specific customer
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_OrdersForAlice_ReturnsCorrectCount()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -100,7 +100,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Single result
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QuerySingleAsync_CustomerByEmail_ReturnsCustomer()
     {
         var result = await fixture.Client.QuerySingleAsync<dynamic>(
@@ -117,7 +117,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Field-value assertions
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_AllCustomers_ContainsExpectedEmails()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -134,7 +134,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
         Assert.Contains("carol@example.com", emails);
     }
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_DeliveredOrders_AllHaveCorrectStatus()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -151,7 +151,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Order items join
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task QueryAsync_ItemsForDeliveredOrders_ReturnsItems()
     {
         var result = await fixture.Client.QueryAsync<dynamic>(
@@ -168,7 +168,7 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // SQL generation only (no DB required — validates LLM output is SELECT)
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task GenerateSqlAsync_SimpleQuery_ReturnsSql()
     {
         var sql = await fixture.Client.GenerateSqlAsync(
@@ -182,11 +182,11 @@ public sealed class SqlChatIntegrationTests(DatabaseFixture fixture) : IClassFix
     // Result object behaviour
     // -------------------------------------------------------------------------
 
-    [IntegrationFact]
-    public async Task QueryAsync_IsFailed_WhenNoExecutorAndQueryRequested()
+    [AnthropicIntegrationFact]
+    public async Task QueryAsync_IsNotSuccess_WhenNoExecutorAndQueryRequested()
     {
         // The client built without a connection string has no executor — verifies
-        // the IsFailed path is returned, not an exception.
+        // a failed result is returned, not an exception.
         var result = await fixture.Client.QueryAsync<dynamic>(
             "Show all rows from sqlchat_test_customers.");
 

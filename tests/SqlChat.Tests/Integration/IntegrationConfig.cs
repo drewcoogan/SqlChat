@@ -19,12 +19,17 @@ internal static class IntegrationConfig
     public static string? AnthropicApiKey =>
         Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
 
-    public static string AnthropicModel => "claude-haiku-4-5-20251001";
+    public static string AnthropicModel =>
+        Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
+
+    public static int AnthropicMaxOutputTokens =>
+        int.TryParse(Environment.GetEnvironmentVariable("ANTHROPIC_MAX_OUTPUT_TOKENS"), out var v) ? v : 2048;
 
     public static string? OpenAiApiKey =>
         Environment.GetEnvironmentVariable("OPENAI_API_KEY");
 
-    public static string OpenAiModel => "gpt-4o-mini";
+    public static string OpenAiModel =>
+        Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini";
 
     public static int QueryRetryMax =>
         int.TryParse(Environment.GetEnvironmentVariable("SQLCHAT_QUERY_RETRY_MAX"), out var v) ? v : 3;
@@ -34,6 +39,12 @@ internal static class IntegrationConfig
 
     public static bool IsSqlServerEnabled =>
         IsEnabled && Environment.GetEnvironmentVariable("SQLCHAT_SQLSERVER_CONNECTION_STRING") is not null;
+
+    public static bool IsAnthropicEnabled =>
+        IsEnabled && !string.IsNullOrWhiteSpace(AnthropicApiKey);
+
+    public static bool IsOpenAiEnabled =>
+        IsEnabled && !string.IsNullOrWhiteSpace(OpenAiApiKey);
 
     public static string SqlServerConnectionString =>
         Environment.GetEnvironmentVariable("SQLCHAT_SQLSERVER_CONNECTION_STRING")

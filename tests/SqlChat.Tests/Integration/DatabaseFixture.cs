@@ -152,9 +152,10 @@ public sealed class DatabaseFixture : IAsyncLifetime
             .UseConnectionString(IntegrationConfig.ConnectionString, IntegrationConfig.QueryRetryMax)
             .UseGenerator(new AnthropicSqlGenerator(new SqlChatOptions
             {
-                AnthropicApiKey = IntegrationConfig.AnthropicApiKey,
-                AnthropicModel  = IntegrationConfig.AnthropicModel,
-                LlmFixRetryMax  = IntegrationConfig.LlmFixRetryMax
+                AnthropicApiKey  = IntegrationConfig.AnthropicApiKey,
+                AnthropicModel   = IntegrationConfig.AnthropicModel,
+                MaxOutputTokens  = IntegrationConfig.AnthropicMaxOutputTokens,
+                LlmFixRetryMax   = IntegrationConfig.LlmFixRetryMax
             }))
             .Enrich(e => e
                 .Table("sqlchat_test_customers", t => t

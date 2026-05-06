@@ -6,7 +6,7 @@ namespace SqlChat.Tests.Integration;
 
 public sealed class AnthropicConnectionTests
 {
-    [IntegrationFact]
+    [AnthropicIntegrationFact]
     public async Task Ping_Succeeds()
     {
         var apiKey = IntegrationConfig.AnthropicApiKey;

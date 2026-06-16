@@ -40,8 +40,8 @@ public sealed class OpenAiSqlGenerator : ISqlGenerator, IDisposable
             },
             ct).ConfigureAwait(false);
 
-        var text = response.Value.Content[0].Text;
-        if (text.IsNotEmpty())
+        var text = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : null;
+        if (!string.IsNullOrWhiteSpace(text))
             return SchemaPromptBuilder.ExtractSql(text);
 
         throw new InvalidOperationException("OpenAI returned no text content.");

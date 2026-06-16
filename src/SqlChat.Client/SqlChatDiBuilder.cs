@@ -39,11 +39,23 @@ public sealed class SqlChatDiBuilder
         Services.AddScoped(sp =>
         {
             var context = sp.GetRequiredService<TContext>();
+            if (context.Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) is true)
+                throw new InvalidOperationException(
+                    $"UseEntityFramework only supports PostgreSQL. Use UseSqlServerConnectionString() for SQL Server contexts, or UseSchemaFromEF<{typeof(TContext).Name}>() to let SqlChat detect the provider automatically.");
             var cs = context.Database.GetConnectionString()
                 ?? throw new InvalidOperationException($"{typeof(TContext).Name} has no connection string configured.");
             return new PostgresSchemaProvider(cs);
         });
         Services.AddScoped<ISchemaProvider>(sp => sp.GetRequiredService<PostgresSchemaProvider>());
+        Services.AddScoped<IQueryExecutor>(sp =>
+        {
+            var context = sp.GetRequiredService<TContext>();
+            var cs = context.Database.GetConnectionString();
+            if (cs is null) return null!;
+            var optionsBase = sp.GetService<SqlChatOptions>();
+            return new PostgresQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs });
+        });
+        _concreteSchemaProviderType = typeof(PostgresSchemaProvider);
         return this;
     }
 

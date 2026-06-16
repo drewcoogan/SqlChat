@@ -1,3 +1,4 @@
+using SqlChat.Data.Schema;
 using SqlChat.Data.Serialization;
 using SqlChat.Domain.Builders;
 
@@ -83,6 +84,59 @@ public sealed class SchemaCatalogSerializerTests
 
         Assert.Equal(fromYaml.Tables[0].Name, fromJson.Tables[0].Name);
         Assert.Equal(fromYaml.Tables[0].Columns.Count, fromJson.Tables[0].Columns.Count);
-        Assert.Equal(fromYaml.Tables[0].Columns[1].Description, fromJson.Tables[0].Columns[1].Description);
+
+        var idFromYaml = fromYaml.Tables[0].Columns[0];
+        var idFromJson = fromJson.Tables[0].Columns[0];
+        Assert.Equal(idFromYaml.StoreType, idFromJson.StoreType);
+        Assert.Equal(idFromYaml.IsPrimaryKey, idFromJson.IsPrimaryKey);
+        Assert.Equal(idFromYaml.IsNullable, idFromJson.IsNullable);
+
+        var statusFromYaml = fromYaml.Tables[0].Columns[1];
+        var statusFromJson = fromJson.Tables[0].Columns[1];
+        Assert.Equal(statusFromYaml.Description, statusFromJson.Description);
+        Assert.Equal(statusFromYaml.StoreType, statusFromJson.StoreType);
+        Assert.Equal(statusFromYaml.IsNullable, statusFromJson.IsNullable);
+    }
+
+    [Fact]
+    public void ToYaml_RoundTrip_PreservesSchemaFkAndPk()
+    {
+        const string sql = """
+            CREATE TABLE public.orders (
+                id SERIAL NOT NULL,
+                customer_id INT NOT NULL REFERENCES customers(id),
+                total DECIMAL(10,2),
+                CONSTRAINT orders_pkey PRIMARY KEY (id)
+            );
+            """;
+
+        var original = DdlSchemaScanner.ScanSql(sql);
+        var yaml = SchemaCatalogSerializer.ToYaml(original);
+        var roundTripped = SchemaCatalogSerializer.FromYaml(yaml);
+
+        Assert.Single(roundTripped.Tables);
+        var table = roundTripped.Tables[0];
+        Assert.Equal("orders", table.Name);
+        Assert.Equal("public", table.Schema);
+        Assert.Equal(3, table.Columns.Count);
+
+        var id = table.Columns.Single(c => c.Name == "id");
+        Assert.True(id.IsPrimaryKey);
+        Assert.False(id.IsNullable);
+
+        var customerId = table.Columns.Single(c => c.Name == "customer_id");
+        Assert.NotNull(customerId.ForeignKey);
+        Assert.Equal("customers", customerId.ForeignKey.PrincipalTable);
+    }
+
+    [Fact]
+    public void ToYaml_ProducesReadableOutput()
+    {
+        var catalog = DdlSchemaScanner.ScanSql("CREATE TABLE users (id INT NOT NULL, email VARCHAR(255) NOT NULL);");
+        var yaml = SchemaCatalogSerializer.ToYaml(catalog);
+
+        Assert.Contains("tables:", yaml);
+        Assert.Contains("name: users", yaml);
+        Assert.Contains("storeType:", yaml);
     }
 }

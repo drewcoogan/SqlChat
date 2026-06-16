@@ -45,14 +45,14 @@ public sealed class PreviewSqlAsyncTests
     }
 
     [Fact]
-    public async Task PreviewSqlAsync_SecurityViolation_ReturnsFailedResult()
+    public async Task PreviewSqlAsync_SecurityViolation_ReturnsFailedResultWithSecurityReason()
     {
         ISqlChatClient client = BuildClient(new FakeSqlGenerator("DROP TABLE users"));
 
         SqlChatResult result = await client.PreviewSqlAsync("delete everything");
 
         Assert.False(result.IsSuccess);
-        Assert.NotNull(result.Error);
+        Assert.Contains("disallowed keyword", result.Error);
     }
 
     private sealed class ThrowingSqlGenerator(string message) : ISqlGenerator

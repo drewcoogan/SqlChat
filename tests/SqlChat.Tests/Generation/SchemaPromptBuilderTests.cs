@@ -77,7 +77,7 @@ public sealed class SchemaPromptBuilderTests
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void ExtractSql_PlainQuery_ReturnsTrimmed()
+    public void ExtractSql_PlainQuery_ReturnsUnchanged()
     {
         string result = SchemaPromptBuilder.ExtractSql("SELECT * FROM users;");
 

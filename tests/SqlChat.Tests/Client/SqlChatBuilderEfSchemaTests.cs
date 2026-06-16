@@ -59,16 +59,17 @@ public sealed class SqlChatBuilderEfSchemaTests
     public async Task UseSchemaFromEF_WithEnrichment_ExcludedTableNotInSchema()
     {
         await using var db = CreateInMemoryContext();
+        var gen = new CapturingGenerator();
 
         var client = new SqlChatBuilder()
             .UseSchemaFromEF(db)
-            .UseGenerator(new CapturingGenerator())
+            .UseGenerator(gen)
             .Enrich(e => e.ExcludeTable("Blogs"))
             .Build();
 
         await client.GenerateSqlAsync("find all blogs");
 
-        Assert.Empty(CapturingGenerator.LastSchema!.Tables);
+        Assert.Empty(gen.LastSchema!.Tables);
     }
 
     // -------------------------------------------------------------------------
@@ -113,7 +114,7 @@ public sealed class SqlChatBuilderEfSchemaTests
 
     private sealed class CapturingGenerator : ISqlGenerator
     {
-        internal static SchemaCatalog? LastSchema { get; private set; }
+        internal SchemaCatalog? LastSchema { get; private set; }
 
         public Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken ct = default)
         {

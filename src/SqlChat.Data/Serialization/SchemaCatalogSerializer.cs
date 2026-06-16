@@ -36,7 +36,8 @@ public static class SchemaCatalogSerializer
     public static SchemaCatalog FromYaml(string yaml)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(yaml);
-        var dto = _deserializer.Deserialize<SchemaCatalogYaml>(yaml);
+        var dto = _deserializer.Deserialize<SchemaCatalogYaml>(yaml)
+            ?? throw new InvalidOperationException("Failed to deserialize schema YAML.");
         return dto.ToDomain();
     }
 

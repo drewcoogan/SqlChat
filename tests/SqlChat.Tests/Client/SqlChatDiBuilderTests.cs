@@ -242,7 +242,7 @@ public sealed class SqlChatDiBuilderTests
     [Fact]
     public void EnrichFromFile_LoadsJsonFile_AndRegistersExcludedTables()
     {
-        var path = Path.GetTempFileName();
+        var path = Path.ChangeExtension(Path.GetTempFileName(), ".json");
         File.WriteAllText(path, """{ "excludedTables": ["audit_log", "temp"] }""");
 
         try

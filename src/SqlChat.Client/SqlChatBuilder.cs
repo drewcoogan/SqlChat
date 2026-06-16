@@ -44,9 +44,14 @@ public sealed class SqlChatBuilder
 
     public SqlChatBuilder UseEntityFramework(DbContext context)
     {
-        var cs = context.Validate().Database.GetConnectionString()
+        context.Validate();
+        if (context.Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) is true)
+            throw new InvalidOperationException(
+                "UseEntityFramework only supports PostgreSQL. Use UseSqlServerConnectionString() for SQL Server contexts, or UseSchemaFromEF() to let SqlChat detect the provider automatically.");
+        var cs = context.Database.GetConnectionString()
             ?? throw new InvalidOperationException("DbContext has no connection string configured.");
         _schemaProvider = new PostgresSchemaProvider(cs);
+        _executor = new PostgresQueryExecutor(new SqlChatOptions { ConnectionString = cs });
         return this;
     }
 

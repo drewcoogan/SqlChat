@@ -243,6 +243,8 @@ Two EF paths are available:
 
 Violations throw `SqlSecurityException`. This validator runs in `TextToSqlEngine.GenerateSqlAsync` and cannot be skipped through the public API.
 
+`PostgresQueryExecutor` additionally runs every query inside a `SET TRANSACTION READ ONLY` transaction that is always rolled back (the Polly retry wraps the whole connect → begin → query unit). Do not remove it — it is the database-level backstop if the heuristic validator is bypassed. SQL Server has no per-transaction equivalent; the README directs users to a `db_datareader`-only login.
+
 ## Implementation Status
 
 The table below tracks what exists today vs what needs to be built.

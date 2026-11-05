@@ -12,8 +12,7 @@ public sealed class SqlSecurityValidator(SqlSecurityOptions? options = null) : I
         if (sql is null)
             return SqlValidationResult.Fail("SQL is null.");
 
-        var stripped = SqlHeuristicValidation.StripComments(sql);
-        return SqlHeuristicValidation.Validate(stripped, _options.MaxSqlLength);
+        return SqlHeuristicValidation.Validate(sql, _options.MaxSqlLength);
     }
 }
 

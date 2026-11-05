@@ -405,6 +405,54 @@ SqlChat enforces a strict read-only contract that cannot be bypassed through the
 
 Violations are surfaced as a failed result — `IsSuccess = false`, `Error` contains the rejection reason. Nothing is executed.
 
+SQL whose quoting or comments could be read differently by PostgreSQL and SQL Server (backslash-escaped quotes, `$$` dollar quoting, quotes inside `[brackets]`, unterminated strings or comments) is rejected rather than guessed at. The LLM is asked to rewrite it on the next retry.
+
+### Defence in depth
+
+The validator is a heuristic, and its input comes from an LLM that reads your users' questions. Treat it as the first layer, not the only one:
+
+| Layer | Who sets it up | Stops |
+|---|---|---|
+| `SqlSecurityValidator` | SqlChat (always on) | Non-`SELECT` SQL before it is sent |
+| Read-only transaction | SqlChat (PostgreSQL, automatic) | Any table write or DDL, even if the validator is bypassed |
+| SELECT-only database login | **You** | Everything above, plus side-effecting functions (`pg_terminate_backend`, `pg_read_file`, `OPENQUERY`, …) and access to tables you don't grant |
+
+**PostgreSQL** queries run inside `BEGIN … SET TRANSACTION READ ONLY … ROLLBACK`, so the database rejects writes with `cannot execute … in a read-only transaction`. SQL Server has no per-transaction equivalent, which makes the dedicated login below essential there.
+
+### Recommended: connect with a SELECT-only login
+
+Give SqlChat its own database user that can only read the tables it needs. This is the only layer that holds no matter what SQL is generated.
+
+**PostgreSQL**
+
+```sql
+CREATE ROLE sqlchat_reader LOGIN PASSWORD 'change-me';
+GRANT CONNECT ON DATABASE mydb TO sqlchat_reader;
+GRANT USAGE ON SCHEMA public TO sqlchat_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO sqlchat_reader;
+-- Include tables created later:
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO sqlchat_reader;
+-- Optional: lock the role into read-only mode and cap runaway queries
+ALTER ROLE sqlchat_reader SET default_transaction_read_only = on;
+ALTER ROLE sqlchat_reader SET statement_timeout = '30s';
+```
+
+**SQL Server**
+
+```sql
+CREATE LOGIN sqlchat_reader WITH PASSWORD = 'change-me';
+USE mydb;
+CREATE USER sqlchat_reader FOR LOGIN sqlchat_reader;
+ALTER ROLE db_datareader ADD MEMBER sqlchat_reader;
+-- db_datareader grants SELECT only; no EXECUTE, no linked-server access
+```
+
+To keep sensitive data away from the LLM entirely, grant `SELECT` on specific tables (or on views that omit sensitive columns) instead of the whole schema, and hide the same tables from the prompt with `.Enrich(s => s.ExcludeTable(...))`. Excluding a table from the schema only stops the LLM from *knowing* about it; only permissions stop it from being *queried*.
+
+### What leaves your network
+
+The schema (table/column names, types, descriptions) and the user's question are sent to the configured LLM provider. When generated SQL fails, the database's error message is sent back to the LLM so it can fix the query. Database errors can quote values from your data, so factor this into your provider's data-handling terms.
+
 ---
 
 ## Retry Behaviour

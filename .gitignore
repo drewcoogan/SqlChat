@@ -1,6 +1,23 @@
 # Environment / secrets — never commit
 .env
-tests/**/.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+secrets.json
+appsettings.*.json
+*.pfx
+*.pem
+*.key
+
+# Local tool / IDE state
+.claude/settings.local.json
+.vs/
+*.user
+*.suo
+.idea/
+.DS_Store
 
 ## A streamlined .gitignore for modern .NET projects
 ## including temporary files, build results, and

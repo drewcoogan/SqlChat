@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>SqlChat public API: ISqlChatClient, SqlChatBuilder and dependency-injection registration.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
     <ProjectReference Include="..\SqlChat.Data\SqlChat.Data.csproj" />
     <ProjectReference Include="..\SqlChat.Service\SqlChat.Service.csproj" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.*" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.26" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
   </ItemGroup>
 </Project>

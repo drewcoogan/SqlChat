@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>SqlChat orchestration engine and read-only SQL security validation. Referenced by SqlChat.Client; install SqlChat.Ai instead.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\SqlChat.Domain\SqlChat.Domain.csproj" />
   </ItemGroup>

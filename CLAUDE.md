@@ -405,7 +405,7 @@ Console.WriteLine(result.Sql);
 ```csharp
 var schema = new SchemaCatalogBuilder()
     .AddTable("users", t => t
-        .AddColumn("id", "int", pk: true)
+        .AddColumn("id", "int", primaryKey: true)
         .AddColumn("email", "varchar"))
     .Build();
 

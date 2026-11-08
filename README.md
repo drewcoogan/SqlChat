@@ -379,7 +379,7 @@ Edit the file, check it into your service repo, then load it with `UseSchemaFrom
 // Build manually
 var catalog = new SchemaCatalogBuilder()
     .AddTable("orders", t => t
-        .AddColumn("id", "int", pk: true)
+        .AddColumn("id", "int", primaryKey: true)
         .AddColumn("customer_id", "int")
         .AddColumn("total", "decimal(10,2)"))
     .Build();

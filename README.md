@@ -1,3 +1,5 @@
+![SqlChat logo: a winking database with a speech bubble](https://raw.githubusercontent.com/drewcoogan/SqlChat/main/assets/icon.png)
+
 # SqlChat
 
 [![NuGet](https://img.shields.io/nuget/v/SqlChat.Ai.svg)](https://www.nuget.org/packages/SqlChat.Ai)

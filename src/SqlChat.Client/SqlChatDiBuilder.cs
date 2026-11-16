@@ -52,8 +52,7 @@ public sealed class SqlChatDiBuilder
             var context = sp.GetRequiredService<TContext>();
             var cs = context.Database.GetConnectionString();
             if (cs is null) return null!;
-            var optionsBase = sp.GetService<SqlChatOptions>();
-            return new PostgresQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs });
+            return new PostgresQueryExecutor(ExecutorOptions(sp, cs, SqlDialect.PostgreSql));
         });
         _concreteSchemaProviderType = typeof(PostgresSchemaProvider);
         return this;
@@ -72,10 +71,9 @@ public sealed class SqlChatDiBuilder
             // QueryAsync will be unavailable; GenerateSqlAsync works without a live DB.
             if (cs is null) return null!;
 
-            var optionsBase = sp.GetService<SqlChatOptions>();
             return context.Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) is true
-                ? new SqlServerQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs, Dialect = SqlDialect.SqlServer })
-                : new PostgresQueryExecutor(optionsBase ?? new SqlChatOptions { ConnectionString = cs });
+                ? new SqlServerQueryExecutor(ExecutorOptions(sp, cs, SqlDialect.SqlServer))
+                : new PostgresQueryExecutor(ExecutorOptions(sp, cs, SqlDialect.PostgreSql));
         });
         _concreteSchemaProviderType = typeof(EfCoreSchemaProvider);
         return this;
@@ -87,8 +85,7 @@ public sealed class SqlChatDiBuilder
         Services.AddSingleton(new PostgresSchemaProvider(connectionString));
         Services.AddSingleton<ISchemaProvider>(sp => sp.GetRequiredService<PostgresSchemaProvider>());
         Services.AddSingleton<IQueryExecutor>(sp =>
-            new PostgresQueryExecutor(
-                sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString }));
+            new PostgresQueryExecutor(ExecutorOptions(sp, connectionString, SqlDialect.PostgreSql)));
         _concreteSchemaProviderType = typeof(PostgresSchemaProvider);
         return this;
     }
@@ -99,8 +96,7 @@ public sealed class SqlChatDiBuilder
         Services.AddSingleton(new SqlServerSchemaProvider(connectionString));
         Services.AddSingleton<ISchemaProvider>(sp => sp.GetRequiredService<SqlServerSchemaProvider>());
         Services.AddSingleton<IQueryExecutor>(sp =>
-            new SqlServerQueryExecutor(
-                sp.GetService<SqlChatOptions>() ?? new SqlChatOptions { ConnectionString = connectionString, Dialect = SqlDialect.SqlServer }));
+            new SqlServerQueryExecutor(ExecutorOptions(sp, connectionString, SqlDialect.SqlServer)));
         _concreteSchemaProviderType = typeof(SqlServerSchemaProvider);
         return this;
     }
@@ -108,7 +104,7 @@ public sealed class SqlChatDiBuilder
     public SqlChatDiBuilder UseSchemaFromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var catalog = Path.GetExtension(path).ToLowerInvariant() == ".json"
+        var catalog = Path.GetExtension(path).Equals(".json", StringComparison.InvariantCultureIgnoreCase)
             ? SchemaCatalogSerializer.FromJson(File.ReadAllText(path))
             : SchemaCatalogSerializer.FromYaml(File.ReadAllText(path));
         Services.AddSingleton<ISchemaProvider>(new ManualSchemaProvider(catalog));
@@ -171,4 +167,18 @@ public sealed class SqlChatDiBuilder
 
     private static JsonSerializerOptions GetJsonSerializerOptions() => new() { PropertyNameCaseInsensitive = true };
 
+    // Options from WithOptions() supply the tuning values only. The connection string and dialect always come
+    // from the Use*() call that chose the database, so the executor talks to the same DB as the schema provider.
+    private static SqlChatOptions ExecutorOptions(IServiceProvider sp, string connectionString, SqlDialect dialect)
+    {
+        SqlChatOptions? configured = sp.GetService<SqlChatOptions>();
+        SqlChatOptions options = new() { ConnectionString = connectionString, Dialect = dialect };
+        if (configured is not null)
+        {
+            options.QueryRetryMax = configured.QueryRetryMax;
+            options.LlmFixRetryMax = configured.LlmFixRetryMax;
+        }
+
+        return options;
+    }
 }

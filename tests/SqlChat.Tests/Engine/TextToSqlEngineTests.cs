@@ -1,7 +1,11 @@
+using Microsoft.Extensions.DependencyInjection;
+using SqlChat.Client;
+using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
 using SqlChat.Domain.Exceptions;
 using SqlChat.Domain.Models;
 using SqlChat.Domain.Providers;
+using SqlChat.Domain.Results;
 using SqlChat.Service.Engine;
 using SqlChat.Tests.Fakes;
 
@@ -91,11 +95,12 @@ public sealed class TextToSqlEngineTests
         executor.Throws(new InvalidOperationException("db error"));
         executor.Throws(new InvalidOperationException("db error"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        SqlExecutionFailedException ex = await Assert.ThrowsAsync<SqlExecutionFailedException>(
             () => engine.GenerateAndExecuteManyAsync<object>(
                 "find all users", executor, llmFixRetryMax: 2));
 
         Assert.Equal(3, executor.CallCount);
+        Assert.Equal("SELECT id FROM users", ex.Sql);
     }
 
     [Fact]
@@ -127,5 +132,110 @@ public sealed class TextToSqlEngineTests
 
         Assert.Equal("SELECT id, email FROM users WHERE id = 1", sql);
         Assert.NotNull(data);
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom validator cannot replace the built-in checks
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task GenerateSqlAsync_PermissiveCustomValidator_StillRejectsDml()
+    {
+        var engine = new TextToSqlEngine(
+            new ManualSchemaProvider(TestSchema), new FakeSqlGenerator("DROP TABLE users"), new AllowAllValidator());
+
+        await Assert.ThrowsAsync<SqlSecurityException>(
+            () => engine.GenerateSqlAsync("delete everything"));
+    }
+
+    [Fact]
+    public void ValidateGeneratedSql_StricterCustomValidator_RejectsSelectTheBuiltInAllows()
+    {
+        var engine = new TextToSqlEngine(
+            new ManualSchemaProvider(TestSchema), new FakeSqlGenerator("SELECT 1"), new RejectAllValidator());
+
+        SqlValidationResult result = engine.ValidateGeneratedSql("SELECT id FROM users");
+
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public async Task SqlChatBuilder_PermissiveCustomValidator_PreviewStillFails()
+    {
+        ISqlChatClient client = new SqlChatBuilder()
+            .UseSchema(TestSchema)
+            .UseGenerator(new FakeSqlGenerator("DROP TABLE users"))
+            .UseSqlSecurity(new AllowAllValidator())
+            .Build();
+
+        SqlChatResult result = await client.PreviewSqlAsync("delete everything");
+
+        Assert.False(result.IsSuccess);
+    }
+
+    // -------------------------------------------------------------------------
+    // Failure results carry the SQL and the database error
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task QueryAsync_AllRetriesExhausted_ResultHasLastSqlAndDatabaseError()
+    {
+        var generator = new SequencedFakeSqlGenerator("SELECT bad FROM users", "SELECT worse FROM users");
+        var executor = new FakeQueryExecutor();
+        executor.Throws(new InvalidOperationException("column \"bad\" does not exist"));
+        executor.Throws(new InvalidOperationException("column \"worse\" does not exist"));
+        var client = BuildClient(generator, executor, llmFixRetryMax: 1);
+
+        SqlChatCollectionResult<object> result = await client.QueryAsync<object>("find all users");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SELECT worse FROM users", result.Sql);
+        Assert.Contains("2 attempt(s)", result.Error);
+        Assert.Contains("column \"worse\" does not exist", result.Error);
+    }
+
+    [Fact]
+    public async Task QuerySingleAsync_ExecutionFails_ResultHasSqlAndDatabaseError()
+    {
+        var executor = new FakeQueryExecutor();
+        executor.Throws(new InvalidOperationException("relation missing"));
+        var client = BuildClient(new FakeSqlGenerator("SELECT id FROM users"), executor, llmFixRetryMax: 0);
+
+        SqlChatResult<object> result = await client.QuerySingleAsync<object>("find a user");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SELECT id FROM users", result.Sql);
+        Assert.Contains("relation missing", result.Error);
+    }
+
+    [Fact]
+    public async Task QueryAsync_SecurityRejection_ResultHasNoSql()
+    {
+        var client = BuildClient(new FakeSqlGenerator("DELETE FROM users"), new FakeQueryExecutor(), llmFixRetryMax: 0);
+
+        SqlChatCollectionResult<object> result = await client.QueryAsync<object>("delete all users");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(string.Empty, result.Sql);
+    }
+
+    // SqlChatClient's constructor is internal to SqlChat.Client, so resolve it through DI.
+    private static ISqlChatClient BuildClient(ISqlGenerator generator, IQueryExecutor executor, int llmFixRetryMax)
+    {
+        var services = new ServiceCollection();
+        services.AddSqlChat().UseGenerator(generator).WithOptions(o => o.LlmFixRetryMax = llmFixRetryMax);
+        services.AddSingleton<ISchemaProvider>(new ManualSchemaProvider(TestSchema));
+        services.AddSingleton(executor);
+        return services.BuildServiceProvider().CreateScope().ServiceProvider.GetRequiredService<ISqlChatClient>();
+    }
+
+    private sealed class AllowAllValidator : ISqlSecurityValidator
+    {
+        public SqlValidationResult ValidateGeneratedSql(string sql) => SqlValidationResult.Ok();
+    }
+
+    private sealed class RejectAllValidator : ISqlSecurityValidator
+    {
+        public SqlValidationResult ValidateGeneratedSql(string sql) => SqlValidationResult.Fail("rejected by custom rule");
     }
 }

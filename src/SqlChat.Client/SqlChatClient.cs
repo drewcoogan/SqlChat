@@ -32,6 +32,10 @@ public sealed class SqlChatClient : ISqlChatClient
                 .ConfigureAwait(false);
             return SqlChatCollectionResult<T>.Success(data, sql);
         }
+        catch (SqlExecutionFailedException ex)
+        {
+            return SqlChatCollectionResult<T>.Fail(ex.Sql, ex.Message);
+        }
         catch (Exception ex)
         {
             return SqlChatCollectionResult<T>.Fail(ex.Message);
@@ -49,6 +53,10 @@ public sealed class SqlChatClient : ISqlChatClient
                 .GenerateAndExecuteSingleAsync<T>(naturalLanguage, _executor, _llmFixRetryMax, ct)
                 .ConfigureAwait(false);
             return SqlChatResult<T>.Success(data, sql);
+        }
+        catch (SqlExecutionFailedException ex)
+        {
+            return SqlChatResult<T>.Fail(ex.Sql, ex.Message);
         }
         catch (Exception ex)
         {

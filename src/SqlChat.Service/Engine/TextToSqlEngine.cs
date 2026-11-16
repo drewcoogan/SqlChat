@@ -15,8 +15,21 @@ internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenera
     public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default) =>
         await _schemaProvider.GetSchemaAsync(ct).ConfigureAwait(false);
 
-    public SqlValidationResult ValidateGeneratedSql(string sql) =>
-        _sqlSecurity.ValidateGeneratedSql(sql);
+    // The built-in read-only checks always run. A caller-supplied validator can only add rules on top of
+    // them, never replace them. (SqlSecurityValidator is sealed and runs the same checks itself.)
+    public SqlValidationResult ValidateGeneratedSql(string sql)
+    {
+        if (_sqlSecurity is not SqlSecurityValidator)
+        {
+            SqlValidationResult builtIn = sql is null
+                ? SqlValidationResult.Fail("SQL is null.")
+                : SqlHeuristicValidation.Validate(sql, int.MaxValue);
+            if (!builtIn.IsValid)
+                return builtIn;
+        }
+
+        return _sqlSecurity.ValidateGeneratedSql(sql!); // null was rejected above, or is rejected by SqlSecurityValidator
+    }
 
     public void ValidateGeneratedSqlOrThrow(string sql)
     {
@@ -68,6 +81,7 @@ internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenera
         CancellationToken cancellationToken)
     {
         string prompt = naturalLanguage;
+        string lastSql = string.Empty;
         Exception? lastException = null;
 
         for (int attempt = 0; attempt <= llmFixRetryMax; attempt++)
@@ -86,12 +100,17 @@ internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenera
             catch (Exception ex)
             {
                 lastException = ex;
+                lastSql = sql;
                 if (attempt < llmFixRetryMax)
                     prompt = BuildRetryPrompt(naturalLanguage, sql, ex.Message);
             }
         }
 
-        throw new InvalidOperationException($"SQL execution failed after {llmFixRetryMax + 1} attempt(s).", lastException);
+        string attempts = $"SQL execution failed after {llmFixRetryMax + 1} attempt(s)";
+        throw new SqlExecutionFailedException(
+            lastSql,
+            lastException is null ? $"{attempts}." : $"{attempts}: {lastException.Message}",
+            lastException);
     }
 
     private static string BuildRetryPrompt(string originalQuestion, string failedSql, string error) =>

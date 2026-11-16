@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using SqlChat.Client;
+using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Builders;
@@ -106,6 +107,32 @@ public sealed class SqlChatDiBuilderTests
         var options = services.BuildServiceProvider().GetRequiredService<SqlChatOptions>();
 
         Assert.Equal(5, options.LlmFixRetryMax);
+    }
+
+    [Fact]
+    public void WithOptions_WithoutConnectionString_ExecutorKeepsUsePostgresConnectionString()
+    {
+        var services = new ServiceCollection();
+        services.AddSqlChat()
+            .UsePostgresConnectionString("Host=localhost;Database=test")
+            .WithOptions(o => o.LlmFixRetryMax = 5);
+
+        var executor = services.BuildServiceProvider().GetService<IQueryExecutor>();
+
+        Assert.IsType<PostgresQueryExecutor>(executor);
+    }
+
+    [Fact]
+    public void WithOptions_WithoutConnectionString_ExecutorKeepsUseSqlServerConnectionString()
+    {
+        var services = new ServiceCollection();
+        services.AddSqlChat()
+            .WithOptions(o => o.QueryRetryMax = 1)
+            .UseSqlServerConnectionString("Server=localhost;Database=test");
+
+        var executor = services.BuildServiceProvider().GetService<IQueryExecutor>();
+
+        Assert.IsType<SqlServerQueryExecutor>(executor);
     }
 
     // -------------------------------------------------------------------------

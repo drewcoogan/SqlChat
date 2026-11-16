@@ -12,8 +12,14 @@ namespace SqlChat.Service.Security;
 /// </summary>
 internal static class SqlHeuristicValidation
 {
+    // The second line exists because T-SQL needs no ';' between statements: "SELECT 1 KILL 53" is one batch
+    // that begins with SELECT, so the per-statement shape check never sees the second statement. Every T-SQL
+    // statement keyword that has a side effect and can follow a SELECT must therefore be listed here.
+    // Deliberately absent: FETCH (OFFSET … FETCH), END (CASE … END), OPEN / CLOSE (common column names; a
+    // cursor needs DECLARE, which is listed).
     private static readonly Regex DangerousKeywordPattern = new(
-        @"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|EXEC|EXECUTE|GRANT|REVOKE|OPENROWSET|OPENDATASOURCE|BULK|SHUTDOWN|DBCC|BACKUP|RESTORE|COPY)\b",
+        @"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|EXEC|EXECUTE|GRANT|REVOKE|OPENROWSET|OPENDATASOURCE|BULK|SHUTDOWN|DBCC|BACKUP|RESTORE|COPY"
+        + @"|DENY|KILL|WAITFOR|OPENQUERY|USE|SET|DECLARE|BEGIN|WHILE|GOTO|DISABLE|ENABLE|UPDATETEXT|WRITETEXT|RECEIVE|RECONFIGURE|CHECKPOINT|REVERT|SETUSER|ADD)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex IntoPattern = new(

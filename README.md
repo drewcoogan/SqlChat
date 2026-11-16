@@ -1,5 +1,9 @@
 # SqlChat
 
+[![NuGet](https://img.shields.io/nuget/v/SqlChat.Ai.svg)](https://www.nuget.org/packages/SqlChat.Ai)
+[![CI](https://github.com/drewcoogan/SqlChat/actions/workflows/ci.yml/badge.svg)](https://github.com/drewcoogan/SqlChat/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/drewcoogan/SqlChat/blob/main/LICENSE)
+
 A .NET library that converts natural language questions into executed, read-only SQL results. Ask a question in plain English — SqlChat generates a `SELECT` statement, validates it, runs it against your database, and returns typed results.
 
 ```csharp
@@ -18,6 +22,26 @@ foreach (Order order in result.Data) { ... }
 - .NET 8 or .NET 10
 - PostgreSQL **or** SQL Server database
 - An [Anthropic API key](https://console.anthropic.com/) **or** an [OpenAI API key](https://platform.openai.com/)
+
+---
+
+## Installation
+
+```bash
+dotnet add package SqlChat.Ai
+```
+
+`SqlChat.Ai` is the only package you need: it brings in the rest of SqlChat (client, schema providers, PostgreSQL and SQL Server executors) as dependencies.
+
+| Package | What it contains |
+|---|---|
+| [`SqlChat.Ai`](https://www.nuget.org/packages/SqlChat.Ai) | **Start here.** Anthropic and OpenAI SQL generators, plus `UseAnthropic()` / `UseOpenAi()` DI extensions |
+| [`SqlChat.Client`](https://www.nuget.org/packages/SqlChat.Client) | `ISqlChatClient`, `SqlChatBuilder`, `AddSqlChat()` DI registration |
+| [`SqlChat.Data`](https://www.nuget.org/packages/SqlChat.Data) | Schema providers (PostgreSQL, SQL Server, EF Core, DDL/JSON/YAML) and read-only query executors |
+| [`SqlChat.Service`](https://www.nuget.org/packages/SqlChat.Service) | Orchestration engine and SQL security validator |
+| [`SqlChat.Domain`](https://www.nuget.org/packages/SqlChat.Domain) | Core abstractions, models and result types |
+
+Reference `SqlChat.Client` on its own only if you're bringing your own `ISqlGenerator`.
 
 ---
 

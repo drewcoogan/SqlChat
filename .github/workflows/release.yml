@@ -1,0 +1,61 @@
+name: Release
+
+# To release: bump <Version> in Directory.Build.props, commit, then
+#   git tag v<version> && git push origin v<version>
+# Requires the repository secret NUGET_API_KEY (nuget.org key scoped to push SqlChat.*).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the GitHub Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: nuget
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Check tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROPS_VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          echo "Tag: $TAG_VERSION  Directory.Build.props: $PROPS_VERSION"
+          if [ "$TAG_VERSION" != "$PROPS_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match <Version>$PROPS_VERSION</Version> in Directory.Build.props"
+            exit 1
+          fi
+
+      - name: Restore
+        run: dotnet restore SqlChat.sln
+
+      - name: Build
+        run: dotnet build SqlChat.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test SqlChat.sln -c Release --no-build --filter "FullyQualifiedName!~Integration"
+
+      - name: Pack
+        run: dotnet pack SqlChat.sln -c Release --no-build -o ./nupkgs
+
+      # .snupkg symbol packages in the same folder are pushed automatically.
+      # --skip-duplicate makes a re-run safe if some packages were already published.
+      - name: Push to nuget.org
+        run: >
+          dotnet nuget push "nupkgs/*.nupkg"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" nupkgs/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

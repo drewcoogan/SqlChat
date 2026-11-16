@@ -122,4 +122,23 @@ public sealed class SqlChatBuilderEfSchemaTests
             return Task.FromResult("SELECT 1");
         }
     }
+
+    [Fact]
+    public async Task UseSchemaFromEF_WithEnrichmentAndScopeValidation_ResolvesWithinScope()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<TestDbContext>(o => o.UseInMemoryDatabase(Guid.NewGuid().ToString("N")));
+        services.AddSqlChat()
+            .UseSchemaFromEF<TestDbContext>()
+            .UseGenerator(new FakeSqlGenerator("SELECT 1"))
+            .Enrich(e => e.ExcludeTable("Blogs"));
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        using var scope = provider.CreateScope();
+
+        var schemaProvider = scope.ServiceProvider.GetRequiredService<ISchemaProvider>();
+        SchemaCatalog schema = await schemaProvider.GetSchemaAsync();
+
+        Assert.IsType<EnrichingSchemaProvider>(schemaProvider);
+        Assert.Empty(schema.Tables);
+    }
 }

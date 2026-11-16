@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SqlChat.Ai.Generators;
 using SqlChat.Ai.Options;
 using SqlChat.Client;
@@ -14,6 +15,9 @@ public static class SqlChatAiDiExtensions
         var options = new SqlChatOptions();
         configure?.Invoke(options);
         builder.Services.AddSingleton<ISqlGenerator>(new AnthropicSqlGenerator(options));
+
+        // Makes QueryRetryMax / LlmFixRetryMax set here take effect. WithOptions() still wins when both are used.
+        builder.Services.TryAddSingleton(options);
         return builder;
     }
 

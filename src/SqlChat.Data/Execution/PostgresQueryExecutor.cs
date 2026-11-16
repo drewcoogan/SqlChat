@@ -1,8 +1,9 @@
 using Dapper;
 using Npgsql;
 using Polly;
-using Polly.Retry;
+using SqlChat.Data.Internal;
 using SqlChat.Domain.Abstractions;
+using SqlChat.Domain.Exceptions;
 using SqlChat.Domain.Extensions;
 using SqlChat.Domain.Options;
 
@@ -21,7 +22,8 @@ public sealed class PostgresQueryExecutor(SqlChatOptions options) : IQueryExecut
         .Validate(nameof(options))
         .ConnectionString
         .Validate(v => v.IsNotEmpty())!;
-    private readonly ResiliencePipeline _pipeline = BuildPipeline(options.QueryRetryMax);
+    private readonly ResiliencePipeline _pipeline =
+        QueryRetryPipeline.Build<NpgsqlException>(options.QueryRetryMax, ex => ex.IsTransient);
 
     public Task<IEnumerable<T>> QueryAsync<T>(string sql, CancellationToken cancellationToken = default) =>
         ExecuteReadOnlyAsync(
@@ -37,29 +39,36 @@ public sealed class PostgresQueryExecutor(SqlChatOptions options) : IQueryExecut
     // unusable, so retrying only the query on the same connection could never succeed.
     private async Task<TResult> ExecuteReadOnlyAsync<TResult>(
         Func<NpgsqlConnection, NpgsqlTransaction, CancellationToken, Task<TResult>> query,
-        CancellationToken cancellationToken) =>
-        await _pipeline.ExecuteAsync(async ct =>
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            await using var connection = new NpgsqlConnection(_connectionString);
-            await connection.OpenAsync(ct).ConfigureAwait(false);
-            await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-            await connection.ExecuteAsync(new CommandDefinition(SetReadOnly, transaction: transaction, cancellationToken: ct)).ConfigureAwait(false);
-
-            // Dapper buffers results by default, so rows are fully read before the rollback.
-            var result = await query(connection, transaction, ct).ConfigureAwait(false);
-            await transaction.RollbackAsync(ct).ConfigureAwait(false);
-            return result;
-        }, cancellationToken).ConfigureAwait(false);
-
-    private static ResiliencePipeline BuildPipeline(int maxRetryAttempts) =>
-        new ResiliencePipelineBuilder()
-            .AddRetry(new RetryStrategyOptions
+            return await _pipeline.ExecuteAsync(async ct =>
             {
-                MaxRetryAttempts = maxRetryAttempts,
-                Delay = TimeSpan.FromMilliseconds(200),
-                BackoffType = DelayBackoffType.Exponential,
-                UseJitter = true,
-                ShouldHandle = new PredicateBuilder().Handle<NpgsqlException>(ex => ex.IsTransient)
-            })
-            .Build();
+                await using var connection = new NpgsqlConnection(_connectionString);
+                await connection.OpenAsync(ct).ConfigureAwait(false);
+                await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+                await connection.ExecuteAsync(new CommandDefinition(SetReadOnly, transaction: transaction, cancellationToken: ct)).ConfigureAwait(false);
+
+                // Dapper buffers results by default, so rows are fully read before the rollback.
+                var result = await query(connection, transaction, ct).ConfigureAwait(false);
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                return result;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NpgsqlException ex) when (!IsSqlTextError(ex))
+        {
+            throw new NonRetryableQueryException(ex.Message, ex);
+        }
+    }
+
+    // SQLSTATE classes a rewritten query can fix: 42 (syntax error, unknown table/column, wrong types),
+    // 22 (data exception: bad cast, division by zero) and 21 (cardinality). 42501 is insufficient privilege,
+    // which no rewrite fixes. Everything else is connection, auth, resource or server trouble.
+    internal static bool IsSqlTextError(NpgsqlException exception) =>
+        exception is PostgresException { SqlState: { } state }
+        && state != PostgresErrorCodes.InsufficientPrivilege
+        && (state.StartsWith("42", StringComparison.Ordinal)
+            || state.StartsWith("22", StringComparison.Ordinal)
+            || state.StartsWith("21", StringComparison.Ordinal));
 }

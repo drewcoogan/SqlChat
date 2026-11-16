@@ -1,4 +1,7 @@
 using System.Data;
+using System.Data.Common;
+using Dapper;
+using Polly;
 using SqlChat.Data.Internal;
 using SqlChat.Domain.Abstractions;
 using SqlChat.Domain.Extensions;
@@ -11,33 +14,66 @@ namespace SqlChat.Data.Providers;
 /// </summary>
 public abstract class RelationalSchemaProvider(string connectionString) : ISchemaProvider
 {
+    private const int SchemaRetryMax = 3;
+
+    private static readonly ResiliencePipeline Pipeline =
+        QueryRetryPipeline.Build<DbException>(SchemaRetryMax, ex => ex.IsTransient);
+
     private readonly string _connectionString = connectionString.Validate(v => v.IsNotEmpty());
 
-    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default)
-    {
-        using var connection = CreateConnection(_connectionString);
-        connection.Open();
+    // The retry wraps connect → queries: a transient failure usually breaks the connection.
+    public async Task<SchemaCatalog> GetSchemaAsync(CancellationToken ct = default) =>
+        await Pipeline.ExecuteAsync(async token =>
+        {
+            using var connection = CreateConnection(_connectionString);
+            if (connection is DbConnection dbConnection)
+                await dbConnection.OpenAsync(token).ConfigureAwait(false);
+            else
+                connection.Open();
 
-        var tableRows = await connection.QueryWithRetryAsync<TableRow>(TablesQuery, ct: ct).ConfigureAwait(false);
-        var columnRows = await connection.QueryWithRetryAsync<ColumnRow>(ColumnsQuery, ct: ct).ConfigureAwait(false);
-        var pkRows = await connection.QueryWithRetryAsync<PrimaryKeyRow>(PrimaryKeysQuery, ct: ct).ConfigureAwait(false);
+            var tableRows = await QueryAsync<TableRow>(connection, TablesQuery, token).ConfigureAwait(false);
+            var columnRows = await QueryAsync<ColumnRow>(connection, ColumnsQuery, token).ConfigureAwait(false);
+            var pkRows = await QueryAsync<PrimaryKeyRow>(connection, PrimaryKeysQuery, token).ConfigureAwait(false);
+            var fkRows = ForeignKeysQuery is { } foreignKeysQuery
+                ? await QueryAsync<ForeignKeyRow>(connection, foreignKeysQuery, token).ConfigureAwait(false)
+                : [];
 
-        return BuildCatalog(tableRows, columnRows, pkRows);
-    }
+            return BuildCatalog(tableRows, columnRows, pkRows, fkRows);
+        }, ct).ConfigureAwait(false);
 
     protected abstract IDbConnection CreateConnection(string connectionString);
     protected abstract string TablesQuery { get; }
     protected abstract string ColumnsQuery { get; }
     protected abstract string PrimaryKeysQuery { get; }
 
-    private static SchemaCatalog BuildCatalog(IEnumerable<TableRow> tableRows, IEnumerable<ColumnRow> columnRows, IEnumerable<PrimaryKeyRow> pkRows)
+    /// <summary>
+    /// Query returning one row per foreign-key column: ConstraintSchema, ConstraintName, SchemaName, TableName,
+    /// ColumnName, PrincipalSchema, PrincipalTable, PrincipalColumn. Return <c>null</c> (the default) to skip
+    /// foreign keys.
+    /// </summary>
+    protected virtual string? ForeignKeysQuery => null;
+
+    private static Task<IEnumerable<T>> QueryAsync<T>(IDbConnection connection, string sql, CancellationToken ct) =>
+        connection.QueryAsync<T>(new CommandDefinition(sql, cancellationToken: ct));
+
+    internal static SchemaCatalog BuildCatalog(
+        IEnumerable<TableRow> tableRows,
+        IEnumerable<ColumnRow> columnRows,
+        IEnumerable<PrimaryKeyRow> pkRows,
+        IEnumerable<ForeignKeyRow> fkRows)
     {
-        var pkSet = pkRows
-            .ToHashSet(EqualityComparer<PrimaryKeyRow>.Create(
-                (a, b) => a?.SchemaName == b?.SchemaName
-                    && a?.TableName == b?.TableName
-                    && a?.ColumnName == b?.ColumnName,
-                r => HashCode.Combine(r?.SchemaName, r?.TableName, r?.ColumnName)));
+        HashSet<PrimaryKeyRow> pkSet = [.. pkRows];
+
+        // Only single-column foreign keys map to ForeignKeyReference (same rule as EfCoreSchemaProvider).
+        // Grouping by table as well as constraint keeps two same-named Postgres constraints apart.
+        var fkByColumn = fkRows
+            .GroupBy(fk => (fk.ConstraintSchema, fk.ConstraintName, fk.SchemaName, fk.TableName))
+            .Where(g => g.Count() == 1)
+            .Select(g => g.First())
+            .GroupBy(fk => (fk.SchemaName, fk.TableName, fk.ColumnName))
+            .ToDictionary(
+                g => g.Key,
+                g => new ForeignKeyReference(g.First().PrincipalTable, g.First().PrincipalSchema, g.First().PrincipalColumn));
 
         var columnsByTable = columnRows
             .GroupBy(c => (c.SchemaName, c.TableName))
@@ -46,17 +82,14 @@ public abstract class RelationalSchemaProvider(string connectionString) : ISchem
         var tables = new List<TableDescriptor>();
         foreach (var t in tableRows)
         {
-            var key = (t.SchemaName, t.TableName);
-            var cols = columnsByTable.TryGetValue(key, out var c) ? c : [];
+            var cols = columnsByTable.TryGetValue((t.SchemaName, t.TableName), out var c) ? c : [];
 
-            var columns = cols.Select(col =>
-            {
-                var isPk = pkRows.Any(pk =>
-                    pk.SchemaName == col.SchemaName
-                    && pk.TableName == col.TableName
-                    && pk.ColumnName == col.ColumnName);
-                return ColumnDescriptor.Create(col.ColumnName, col.DataType, isNullable: col.IsNullable, isPrimaryKey: isPk);
-            });
+            var columns = cols.Select(col => ColumnDescriptor.Create(
+                col.ColumnName,
+                col.DataType,
+                isNullable: col.IsNullable,
+                isPrimaryKey: pkSet.Contains(new PrimaryKeyRow(col.SchemaName, col.TableName, col.ColumnName)),
+                foreignKey: fkByColumn.GetValueOrDefault((col.SchemaName, col.TableName, col.ColumnName))));
 
             tables.Add(new TableDescriptor(t.TableName, t.SchemaName, [.. columns]));
         }
@@ -64,7 +97,16 @@ public abstract class RelationalSchemaProvider(string connectionString) : ISchem
         return new SchemaCatalog(tables);
     }
 
-    private sealed record TableRow(string SchemaName, string TableName);
-    private sealed record ColumnRow(string SchemaName, string TableName, string ColumnName, string DataType, bool IsNullable);
-    private sealed record PrimaryKeyRow(string SchemaName, string TableName, string ColumnName);
+    internal sealed record TableRow(string SchemaName, string TableName);
+    internal sealed record ColumnRow(string SchemaName, string TableName, string ColumnName, string DataType, bool IsNullable);
+    internal sealed record PrimaryKeyRow(string SchemaName, string TableName, string ColumnName);
+    internal sealed record ForeignKeyRow(
+        string ConstraintSchema,
+        string ConstraintName,
+        string SchemaName,
+        string TableName,
+        string ColumnName,
+        string PrincipalSchema,
+        string PrincipalTable,
+        string PrincipalColumn);
 }

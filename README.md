@@ -284,7 +284,7 @@ services.AddSqlChat()
 }
 ```
 
-Enrichment is additive — it merges on top of the introspected schema. Use `ExcludeTable` / `ExcludeColumn` to hide tables or columns you don't want the LLM to see.
+Enrichment is additive — it merges on top of the introspected schema. Table and column names match case-insensitively; use a schema-qualified name (`"sales.orders"`) to target one of several same-named tables. Use `ExcludeTable` / `ExcludeColumn` to hide tables or columns you don't want the LLM to see.
 
 ---
 
@@ -428,8 +428,13 @@ SqlChat enforces a strict read-only contract that cannot be bypassed through the
 - `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `TRUNCATE`, `DROP`, `CREATE`, `ALTER`, `GRANT`, `REVOKE`, and `EXEC` are all rejected
 - `SELECT INTO` is rejected (it writes data)
 - Multi-statement input is rejected if any statement is non-`SELECT`
+- T-SQL statements that can follow a `SELECT` without a `;` are rejected by keyword: `DENY`, `KILL`, `WAITFOR`, `OPENQUERY`, `USE`, `SET`, `DECLARE`, `BEGIN`, `WHILE`, `DISABLE` / `ENABLE`, and similar
 
-Violations are surfaced as a failed result — `IsSuccess = false`, `Error` contains the rejection reason. Nothing is executed.
+Keywords are matched as whole words, so `updated_at` or `is_enabled` are fine, but an unquoted column named exactly `set` or `use` is rejected. Double-quoted identifiers (`"update"`) are never treated as keywords.
+
+A custom `ISqlSecurityValidator` passed to `UseSqlSecurity` adds rules on top of these checks; it cannot replace them.
+
+Violations are surfaced as a failed result — `IsSuccess = false`, `Error` contains the rejection reason. Nothing is executed. In `QueryAsync` / `QuerySingleAsync` the rejection reason is first fed back to the LLM for up to `LlmFixRetryMax` rewrites.
 
 SQL whose quoting or comments could be read differently by PostgreSQL and SQL Server (backslash-escaped quotes, `$$` dollar quoting, quotes inside `[brackets]`, unterminated strings or comments) is rejected rather than guessed at. The LLM is asked to rewrite it on the next retry.
 
@@ -488,13 +493,16 @@ SqlChat handles two categories of failure internally:
 | Failure | Strategy |
 |---|---|
 | Transient DB errors (timeouts, connection resets) | Retried with exponential backoff via Polly |
-| Bad SQL from the LLM (syntax errors at execution) | DB error fed back to LLM with context; generation retried |
+| Bad SQL from the LLM (syntax errors, unknown columns, rejected by the validator) | Error fed back to LLM with context; generation retried |
+| Errors a rewrite cannot fix (connection, login, permission, timeout, cancellation) | Not sent to the LLM; returned as a failed result at once |
+
+When execution fails, `result.Sql` holds the last SQL that was run and `result.Error` includes the database's own message. Set `QueryRetryMax = 0` to disable transient retries.
 
 Configure thresholds via generator options and `WithOptions`:
 
 ```csharp
 services.AddSqlChat()
-    .UsePostgresConnectionString("...", queryRetryMax: 3)
+    .UsePostgresConnectionString("...")
     .UseAnthropic(opts => opts.AnthropicApiKey = "...")
     .WithOptions(opts =>
     {

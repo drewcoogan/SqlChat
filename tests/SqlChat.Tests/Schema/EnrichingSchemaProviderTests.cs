@@ -187,4 +187,51 @@ public sealed class EnrichingSchemaProviderTests
 
         Assert.True(result.ExampleQueries is null || result.ExampleQueries.Count == 0);
     }
+
+    [Fact]
+    public async Task GetSchemaAsync_OrdinalDictionaryWithDifferentCase_EnrichmentApplies()
+    {
+        // Mirrors EnrichFromFile: System.Text.Json builds case-sensitive dictionaries.
+        var catalog = new SchemaCatalog([new TableDescriptor("Orders", "sales", [ColumnDescriptor.Create("Status", "int")])]);
+        var enrichment = new SchemaEnrichment
+        {
+            Tables = new Dictionary<string, TableEnrichment>
+            {
+                ["orders"] = new()
+                {
+                    Description = "customer orders",
+                    Columns = new Dictionary<string, ColumnEnrichment> { ["status"] = new("1 = open", null) }
+                }
+            }
+        };
+
+        SchemaCatalog result = await new EnrichingSchemaProvider(new ManualSchemaProvider(catalog), enrichment).GetSchemaAsync();
+
+        Assert.Equal("customer orders", result.Tables[0].Description);
+        Assert.Equal("1 = open", result.Tables[0].Columns[0].Description);
+    }
+
+    [Fact]
+    public async Task GetSchemaAsync_SchemaQualifiedNames_TargetOnlyThatSchema()
+    {
+        var catalog = new SchemaCatalog(
+        [
+            new TableDescriptor("orders", "sales", [ColumnDescriptor.Create("id", "int")]),
+            new TableDescriptor("orders", "archive", [ColumnDescriptor.Create("id", "int")]),
+            new TableDescriptor("audit", "sales", [ColumnDescriptor.Create("id", "int")]),
+            new TableDescriptor("audit", "archive", [ColumnDescriptor.Create("id", "int")]),
+        ]);
+        var enrichment = new SchemaEnrichment
+        {
+            ExcludedTables = ["archive.audit"],
+            Tables = new Dictionary<string, TableEnrichment> { ["sales.orders"] = new() { Description = "live orders" } }
+        };
+
+        SchemaCatalog result = await new EnrichingSchemaProvider(new ManualSchemaProvider(catalog), enrichment).GetSchemaAsync();
+
+        Assert.Equal(3, result.Tables.Count);
+        Assert.Equal("live orders", result.Tables.Single(t => t.Schema == "sales" && t.Name == "orders").Description);
+        Assert.Null(result.Tables.Single(t => t.Schema == "archive" && t.Name == "orders").Description);
+        Assert.DoesNotContain(result.Tables, t => t.Schema == "archive" && t.Name == "audit");
+    }
 }

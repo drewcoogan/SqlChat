@@ -26,6 +26,12 @@ internal static class SqlHeuristicValidation
         @"\bINTO\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    // Runs on sanitized SQL (no comments, no single-quoted literals), so every remaining '"' delimits a
+    // double-quoted token.
+    private static readonly Regex DoubleQuotedPattern = new(
+        "\"(?:[^\"]|\"\")*\"",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     internal static SqlValidationResult Validate(string sql, int maxSqlLength)
     {
         if (sql.Length > maxSqlLength)
@@ -38,10 +44,15 @@ internal static class SqlHeuristicValidation
         if (trimmed.Length == 0)
             return SqlValidationResult.Fail("SQL is empty.");
 
-        if (DangerousKeywordPattern.IsMatch(trimmed))
+        // A double-quoted token is an identifier (or, with SQL Server QUOTED_IDENTIFIER OFF, a string literal)
+        // in both dialects, never a keyword, so a column such as "update" must not trip the keyword scan.
+        // [bracketed] names are still scanned: Postgres reads brackets as an array subscript expression.
+        var keywordScan = DoubleQuotedPattern.Replace(trimmed, "\"_\"");
+
+        if (DangerousKeywordPattern.IsMatch(keywordScan))
             return SqlValidationResult.Fail("SQL contains a disallowed keyword.");
 
-        if (IntoPattern.IsMatch(trimmed))
+        if (IntoPattern.IsMatch(keywordScan))
             return SqlValidationResult.Fail("SQL must not contain INTO (e.g. SELECT INTO).");
 
         if (!StartsWithSelectOrWith(trimmed.AsSpan()))

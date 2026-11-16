@@ -33,12 +33,13 @@ public sealed class OpenAiSqlGenerator : ISqlGenerator, IDisposable
                 new SystemChatMessage(systemPrompt),
                 new UserChatMessage(naturalLanguage)
             ],
-            new ChatCompletionOptions
-            {
-                MaxOutputTokenCount = _options.MaxOutputTokens,
-                Temperature = 0f
-            },
+            new ChatCompletionOptions { MaxOutputTokenCount = _options.MaxOutputTokens },
             ct).ConfigureAwait(false);
+
+        // A response cut off at the token limit can still parse as SQL and silently answer a different question.
+        if (response.Value.FinishReason == ChatFinishReason.Length)
+            throw new InvalidOperationException(
+                $"OpenAI stopped at the output token limit ({_options.MaxOutputTokens}); the SQL is incomplete. Increase {nameof(OpenAiSqlGeneratorOptions.MaxOutputTokens)}.");
 
         var text = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : null;
         if (!string.IsNullOrWhiteSpace(text))

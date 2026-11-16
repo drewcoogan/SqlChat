@@ -115,6 +115,7 @@ public sealed class SqlChatBuilder
 
     public SqlChatBuilder WithLlmFixRetryMax(int max)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(max);
         _llmFixRetryMax = max;
         return this;
     }

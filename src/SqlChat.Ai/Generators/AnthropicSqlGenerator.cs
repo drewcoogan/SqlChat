@@ -10,6 +10,8 @@ namespace SqlChat.Ai.Generators;
 
 public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
 {
+    private const string ApiKeyEnvironmentVariable = "ANTHROPIC_API_KEY";
+
     private readonly SqlChatOptions _options;
     private readonly HttpClient _httpClient;
     private readonly AnthropicClient _client;
@@ -18,11 +20,17 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
     {
         _options = options.Validate();
 
+        string? apiKey = options.AnthropicApiKey.IsNotEmpty()
+            ? options.AnthropicApiKey
+            : Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
+        if (apiKey.IsEmpty())
+            throw new ArgumentException(
+                $"Set {nameof(SqlChatOptions)}.{nameof(SqlChatOptions.AnthropicApiKey)} or the {ApiKeyEnvironmentVariable} environment variable.",
+                nameof(options));
+
         var httpHandler = new HttpClientHandler(); // TODO: we can add parameters here for proxies into options if we want
         _httpClient = new HttpClient(httpHandler);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.AnthropicApiKey, nameof(options.AnthropicApiKey));
-        _client = new AnthropicClient(new APIAuthentication(options.AnthropicApiKey), _httpClient);
+        _client = new AnthropicClient(new APIAuthentication(apiKey), _httpClient);
     }
 
     public async Task<string> GenerateAsync(string naturalLanguage, SchemaCatalog schema, CancellationToken ct = default)
@@ -33,7 +41,6 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
         {
             Model = _options.AnthropicModel,
             MaxTokens = _options.MaxOutputTokens,
-            Temperature = 0,
             PromptCaching = PromptCacheType.FineGrained,
             System =
             [
@@ -49,6 +56,10 @@ public sealed class AnthropicSqlGenerator : ISqlGenerator, IDisposable
             ]
         }, ct).ConfigureAwait(false);
 
+        // A response cut off at the token limit can still parse as SQL and silently answer a different question.
+        if (string.Equals(response.StopReason, "max_tokens", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Anthropic stopped at the output token limit ({_options.MaxOutputTokens}); the SQL is incomplete. Increase {nameof(SqlChatOptions.MaxOutputTokens)}.");
 
         if (response.FirstMessage?.Text is { } text && text.IsNotEmpty())
             return SchemaPromptBuilder.ExtractSql(text);

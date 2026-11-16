@@ -73,6 +73,9 @@ internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenera
         return await RunWithLlmRetryAsync(naturalLanguage, schema, executor.QuerySingleAsync<T>, llmFixRetryMax, ct).ConfigureAwait(false);
     }
 
+    // Each attempt generates SQL, validates it, and runs it. A security rejection or a database error is fed
+    // back to the generator for another try. Cancellation and failures the SQL text cannot fix
+    // (NonRetryableQueryException: connection, auth, permission, timeout) stop the loop at once.
     private async Task<(TResult result, string sql)> RunWithLlmRetryAsync<TResult>(
         string naturalLanguage,
         SchemaCatalog schema,
@@ -80,37 +83,46 @@ internal sealed class TextToSqlEngine(ISchemaProvider schemaProvider, ISqlGenera
         int llmFixRetryMax,
         CancellationToken cancellationToken)
     {
+        int maxAttempts = Math.Max(llmFixRetryMax, 0) + 1;
         string prompt = naturalLanguage;
-        string lastSql = string.Empty;
-        Exception? lastException = null;
 
-        for (int attempt = 0; attempt <= llmFixRetryMax; attempt++)
+        for (int attempt = 1; ; attempt++)
         {
+            bool isLastAttempt = attempt >= maxAttempts;
             var sql = await _generator.GenerateAsync(prompt, schema, cancellationToken).ConfigureAwait(false);
 
             var validation = ValidateGeneratedSql(sql);
             if (!validation.IsValid)
-                throw new SqlSecurityException(validation.RejectionReason ?? "Generated SQL failed security validation.");
+            {
+                string reason = validation.RejectionReason ?? "Generated SQL failed security validation.";
+                if (isLastAttempt)
+                    throw new SqlSecurityException(reason);
+
+                prompt = BuildRetryPrompt(naturalLanguage, sql, $"Rejected by the read-only SQL policy: {reason}");
+                continue;
+            }
 
             try
             {
                 TResult result = await execute(sql, cancellationToken).ConfigureAwait(false);
                 return (result, sql);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRetryableQueryException ex)
+            {
+                throw new SqlExecutionFailedException(sql, $"SQL execution failed: {ex.Message}", ex);
+            }
             catch (Exception ex)
             {
-                lastException = ex;
-                lastSql = sql;
-                if (attempt < llmFixRetryMax)
-                    prompt = BuildRetryPrompt(naturalLanguage, sql, ex.Message);
+                if (isLastAttempt)
+                    throw new SqlExecutionFailedException(sql, $"SQL execution failed after {attempt} attempt(s): {ex.Message}", ex);
+
+                prompt = BuildRetryPrompt(naturalLanguage, sql, ex.Message);
             }
         }
-
-        string attempts = $"SQL execution failed after {llmFixRetryMax + 1} attempt(s)";
-        throw new SqlExecutionFailedException(
-            lastSql,
-            lastException is null ? $"{attempts}." : $"{attempts}: {lastException.Message}",
-            lastException);
     }
 
     private static string BuildRetryPrompt(string originalQuestion, string failedSql, string error) =>

@@ -128,7 +128,9 @@ public sealed class SqlChatDiBuilder
     public SqlChatDiBuilder WithOptions(Action<SqlChatOptions> configure)
     {
         var options = new SqlChatOptions();
-        configure(options);
+        configure.Validate()(options);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.LlmFixRetryMax);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.QueryRetryMax);
         Services.AddSingleton(options);
         return this;
     }
@@ -149,7 +151,9 @@ public sealed class SqlChatDiBuilder
         Services.AddSingleton(enrichment.Validate());
         Services.RemoveAll<ISchemaProvider>();
         var providerType = _concreteSchemaProviderType;
-        Services.AddSingleton<ISchemaProvider>(sp =>
+        // Scoped, not singleton: the EF-backed providers are scoped (they hold a DbContext), and a singleton
+        // must not capture a scoped service.
+        Services.AddScoped<ISchemaProvider>(sp =>
             new EnrichingSchemaProvider(
                 (ISchemaProvider)sp.GetRequiredService(providerType),
                 sp.GetRequiredService<SchemaEnrichment>()));

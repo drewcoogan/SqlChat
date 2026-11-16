@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using SqlChat.Ai;
 using SqlChat.Client;
 using SqlChat.Data.Execution;
 using SqlChat.Data.Providers;
@@ -133,6 +134,47 @@ public sealed class SqlChatDiBuilderTests
         var executor = services.BuildServiceProvider().GetService<IQueryExecutor>();
 
         Assert.IsType<SqlServerQueryExecutor>(executor);
+    }
+
+    [Fact]
+    public void WithOptions_NegativeRetryCounts_ThrowArgumentOutOfRange()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => services.AddSqlChat().WithOptions(o => o.LlmFixRetryMax = -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => services.AddSqlChat().WithOptions(o => o.QueryRetryMax = -1));
+    }
+
+    [Fact]
+    public void UseAnthropic_ConfiguredRetryOptions_AreRegisteredForTheClient()
+    {
+        var services = new ServiceCollection();
+        services.AddSqlChat().UseAnthropic(o =>
+        {
+            o.AnthropicApiKey = "test-key";
+            o.LlmFixRetryMax = 7;
+        });
+
+        var options = services.BuildServiceProvider().GetRequiredService<SqlChatOptions>();
+
+        Assert.Equal(7, options.LlmFixRetryMax);
+    }
+
+    [Fact]
+    public void UseAnthropic_WithOptionsAlsoCalled_WithOptionsWins()
+    {
+        var services = new ServiceCollection();
+        services.AddSqlChat()
+            .WithOptions(o => o.LlmFixRetryMax = 1)
+            .UseAnthropic(o =>
+            {
+                o.AnthropicApiKey = "test-key";
+                o.LlmFixRetryMax = 7;
+            });
+
+        var options = services.BuildServiceProvider().GetRequiredService<SqlChatOptions>();
+
+        Assert.Equal(1, options.LlmFixRetryMax);
     }
 
     // -------------------------------------------------------------------------

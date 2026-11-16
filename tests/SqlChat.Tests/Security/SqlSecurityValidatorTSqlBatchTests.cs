@@ -50,4 +50,29 @@ public sealed class SqlSecurityValidatorTSqlBatchTests
 
         Assert.True(result.IsValid, result.RejectionReason);
     }
+
+    [Theory]
+    [InlineData("SELECT \"update\", \"set\" FROM t")]
+    [InlineData("SELECT o.\"delete\" FROM \"into\" o")]
+    public void ValidateGeneratedSql_KeywordAsDoubleQuotedIdentifier_ReturnsValid(string sql)
+    {
+        var validator = new SqlSecurityValidator();
+
+        var result = validator.ValidateGeneratedSql(sql);
+
+        Assert.True(result.IsValid, result.RejectionReason);
+    }
+
+    [Theory]
+    [InlineData("SELECT 1 INTO \"t\"")]
+    [InlineData("SELECT \"a\" FROM t DELETE FROM \"t\"")]
+    [InlineData("SELECT \"a\"\"b\" FROM t; DROP TABLE \"t\"")]
+    public void ValidateGeneratedSql_KeywordOutsideDoubleQuotedIdentifier_ReturnsInvalid(string sql)
+    {
+        var validator = new SqlSecurityValidator();
+
+        var result = validator.ValidateGeneratedSql(sql);
+
+        Assert.False(result.IsValid);
+    }
 }

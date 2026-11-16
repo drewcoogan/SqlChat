@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using SqlChat.Domain.Models;
 
 namespace SqlChat.Ai.Prompts;
@@ -55,6 +56,12 @@ internal static class SchemaPromptBuilder
         return sb.ToString();
     }
 
+    // "WITH" must look like a CTE head ("WITH name AS", "WITH RECURSIVE name (cols) AS") so that prose such
+    // as "With that in mind, ..." is not taken for the start of the query.
+    private static readonly Regex QueryStartPattern = new(
+        @"^[ \t]*(?:SELECT\b|WITH\s+(?:RECURSIVE\s+)?[\w""\[\]]+\s*(?:\([^)]*\)\s*)?AS\b)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline | RegexOptions.Compiled);
+
     internal static string ExtractSql(string response)
     {
         var trimmed = response.Trim();
@@ -71,25 +78,36 @@ internal static class SchemaPromptBuilder
             }
         }
 
-        // No fences — find the first line starting with SELECT or WITH and take
-        // everything up to and including the last semicolon.
-        var lines = trimmed.Split('\n');
-        var sqlStart = Array.FindIndex(lines, l =>
-        {
-            var t = l.TrimStart();
-            return t.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
-                || t.StartsWith("WITH", StringComparison.OrdinalIgnoreCase);
-        });
-
-        if (sqlStart >= 0)
-            return TrimToLastSemicolon(string.Join('\n', lines[sqlStart..]).Trim());
+        // No fences — start at the first line that begins a query and take everything up to and including
+        // the last semicolon.
+        Match queryStart = QueryStartPattern.Match(trimmed);
+        if (queryStart.Success)
+            return TrimToLastSemicolon(trimmed[queryStart.Index..].Trim());
 
         return trimmed;
     }
 
+    // Cuts trailing prose after the final statement terminator. Semicolons inside quoted text are not
+    // terminators, so "SELECT 'a;b' FROM t" is left whole.
     private static string TrimToLastSemicolon(string sql)
     {
-        var lastSemi = sql.LastIndexOf(';');
+        var lastSemi = -1;
+        var quote = '\0';
+
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var c = sql[i];
+            if (quote != '\0')
+            {
+                if (c == quote)
+                    quote = '\0';
+            }
+            else if (c is '\'' or '"')
+                quote = c;
+            else if (c == ';')
+                lastSemi = i;
+        }
+
         return lastSemi >= 0 ? sql[..(lastSemi + 1)] : sql;
     }
 }

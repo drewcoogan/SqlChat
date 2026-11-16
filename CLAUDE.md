@@ -23,7 +23,7 @@ dotnet build src/SqlChat.Client/SqlChat.Client.csproj
 
 ## Architecture Overview
 
-**Target framework:** .NET 10 across all projects (`Directory.Build.props` sets this globally).
+**Target frameworks:** .NET 8 and .NET 10 (multi-targeted) across all projects (`Directory.Build.props` sets this globally).
 
 SqlChat converts natural language questions into executed, read-only SQL results. It introspects a database from a connection string, generates a validated `SELECT` statement via an LLM, executes it, and returns a typed result object to the caller.
 
@@ -46,8 +46,10 @@ User (natural language)
         → ISqlGenerator         → raw SQL string
         → ISqlSecurityValidator → rejects non-SELECT (surfaced as IsSuccess=false, not thrown)
         → IQueryExecutor        → executes SELECT via Dapper, maps to T
-            → transient error   → Polly retry (QueryRetryMax)
-            → syntax error      → feed DB error back to ISqlGenerator, retry (LlmFixRetryMax)
+            → transient error   → Polly retry (QueryRetryMax; 0 disables)
+            → SQL-text error    → feed DB error back to ISqlGenerator, retry (LlmFixRetryMax)
+            → NonRetryableQueryException (connection, auth, permission, timeout) → fail at once, no LLM retry
+        (a validator rejection is also fed back to ISqlGenerator before giving up)
   → SqlChatCollectionResult<T> / SqlChatResult<T> returned to user
 ```
 
@@ -207,7 +209,7 @@ _client = new OpenAIClient(_options.ApiKey!);
 var chatClient = _client.GetChatClient(_options.Model);
 ClientResult<ChatCompletion> response = await chatClient.CompleteChatAsync(
     [new SystemChatMessage(systemPrompt), new UserChatMessage(naturalLanguage)],
-    new ChatCompletionOptions { MaxOutputTokenCount = _options.MaxOutputTokens, Temperature = 0f },
+    new ChatCompletionOptions { MaxOutputTokenCount = _options.MaxOutputTokens },
     ct).ConfigureAwait(false);
 
 // Response
@@ -241,7 +243,10 @@ Two EF paths are available:
 - Handles multi-statement input — rejects if *any* statement is non-`SELECT`
 - Comment-strips and string-literal-quotes before scanning (prevents bypass via `-- DROP` tricks)
 
-Violations throw `SqlSecurityException`. This validator runs in `TextToSqlEngine.GenerateSqlAsync` and cannot be skipped through the public API.
+- Rejects T-SQL statements that can follow a `SELECT` with no `;` (`DENY`, `KILL`, `WAITFOR`, `OPENQUERY`, `USE`, `SET`, `DECLARE`, `BEGIN`, `WHILE`, …) — the statement splitter cannot see them, so they must be in the keyword list
+- Double-quoted identifiers are masked before the keyword scan (`"update"` is a column, not a keyword); `[bracketed]` names are not
+
+Violations throw `SqlSecurityException`. This validator runs in `TextToSqlEngine.GenerateSqlAsync` and cannot be skipped through the public API: `TextToSqlEngine.ValidateGeneratedSql` always runs the built-in checks first, so a custom `ISqlSecurityValidator` can only add rules.
 
 `PostgresQueryExecutor` additionally runs every query inside a `SET TRANSACTION READ ONLY` transaction that is always rolled back (the Polly retry wraps the whole connect → begin → query unit). Do not remove it — it is the database-level backstop if the heuristic validator is bypassed. SQL Server has no per-transaction equivalent; the README directs users to a `db_datareader`-only login.
 
@@ -265,7 +270,7 @@ The table below tracks what exists today vs what needs to be built.
 | `.Enrich()` / `.EnrichFromFile()` API | ✅ Done | `SchemaEnrichmentBuilder`, `EnrichingSchemaProvider` decorator; works with both Postgres and SQL Server |
 | `ExcludeTable` / `ExcludeColumn` / column descriptions | ✅ Done | Applied by `EnrichingSchemaProvider` at schema fetch time |
 | EF convenience shim — connection string extraction | ✅ Done | `UseEntityFramework(DbContext)` / `UseEntityFramework<TContext>()` extract connection string only |
-| `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `DapperRetryExtensions` are `internal`; `SqlChatClient` constructor is `internal`; `InternalsVisibleTo` grants `SqlChat.Client` and `SqlChat.Tests` access |
+| `internal` access modifier + `InternalsVisibleTo` | ✅ Done | `TextToSqlEngine` and `QueryRetryPipeline` are `internal`; `SqlChatClient` constructor is `internal`; `SqlChat.Service` grants `InternalsVisibleTo` to `SqlChat.Client` and `SqlChat.Tests`, `SqlChat.Data` to `SqlChat.Tests` |
 | `UseSchemaFromEF` / `UseSchemaFromEF<TContext>()` — EF model as schema source | ✅ Done | Uses `EfCoreSchemaProvider`; auto-detects executor from `ProviderName`; supports enrichment |
 | `PreviewSqlAsync` — generate + validate SQL without executing | ✅ Done | Returns base `SqlChatResult`; never throws; distinct from `GenerateSqlAsync` (raw string, throws) |
 

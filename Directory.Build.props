@@ -8,7 +8,7 @@
 
   <!-- NuGet package metadata, shared by every packable project. Each project sets its own <Description>. -->
   <PropertyGroup>
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <Authors>Drew Coogan</Authors>
     <Copyright>Copyright (c) 2026 Drew Coogan</Copyright>
     <PackageTags>sql;llm;text-to-sql;nl2sql;postgres;postgresql;sqlserver;anthropic;claude;openai</PackageTags>

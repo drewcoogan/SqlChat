@@ -1,12 +1,14 @@
 using Npgsql;
 using SqlChat.Data.Execution;
+using SqlChat.Domain.Exceptions;
 using SqlChat.Domain.Options;
 
 namespace SqlChat.Tests.Integration;
 
 /// <summary>
 /// Calls the executor directly — bypassing <c>SqlSecurityValidator</c> — to prove Postgres itself
-/// refuses writes inside SqlChat's read-only transaction.
+/// refuses writes inside SqlChat's read-only transaction. A read-only violation is not a SQL-text error,
+/// so the executor surfaces it as <see cref="NonRetryableQueryException"/> wrapping the server's error.
 /// </summary>
 public sealed class PostgresReadOnlyExecutionTests
 {
@@ -30,10 +32,10 @@ public sealed class PostgresReadOnlyExecutionTests
     {
         var executor = CreateExecutor();
 
-        var ex = await Assert.ThrowsAsync<PostgresException>(
+        var ex = await Assert.ThrowsAsync<NonRetryableQueryException>(
             () => executor.QueryAsync<int>("CREATE TABLE sqlchat_readonly_probe (id int)"));
 
-        Assert.Equal(ReadOnlySqlState, ex.SqlState);
+        Assert.Equal(ReadOnlySqlState, Assert.IsType<PostgresException>(ex.InnerException).SqlState);
     }
 
     [IntegrationFact]
@@ -41,10 +43,10 @@ public sealed class PostgresReadOnlyExecutionTests
     {
         var executor = CreateExecutor();
 
-        var ex = await Assert.ThrowsAsync<PostgresException>(
+        var ex = await Assert.ThrowsAsync<NonRetryableQueryException>(
             () => executor.QueryAsync<int>("SELECT 1; DELETE FROM pg_catalog.pg_class WHERE false"));
 
-        Assert.Equal(ReadOnlySqlState, ex.SqlState);
+        Assert.Equal(ReadOnlySqlState, Assert.IsType<PostgresException>(ex.InnerException).SqlState);
     }
 
     [IntegrationFact]
@@ -52,7 +54,9 @@ public sealed class PostgresReadOnlyExecutionTests
     {
         var executor = CreateExecutor();
 
-        await Assert.ThrowsAsync<PostgresException>(
+        var ex = await Assert.ThrowsAsync<NonRetryableQueryException>(
             () => executor.QueryAsync<string>("SELECT set_config('transaction_read_only', 'off', true)"));
+
+        Assert.IsType<PostgresException>(ex.InnerException);
     }
 }
